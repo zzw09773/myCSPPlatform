@@ -16,6 +16,20 @@
     <!-- Filters -->
     <div class="flex items-center space-x-4 flex-wrap gap-2">
       <div>
+        <label class="text-sm text-gray-600 mr-2">類型：</label>
+        <select
+          v-model="selectedModelType"
+          @change="onModelTypeChange"
+          class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          <option :value="null">全部</option>
+          <option value="llm">LLM</option>
+          <option value="vlm">VLM</option>
+          <option value="embedding">Embedding</option>
+          <option value="agent">Agent</option>
+        </select>
+      </div>
+      <div>
         <label class="text-sm text-gray-600 mr-2">模型：</label>
         <select
           v-model="selectedModel"
@@ -23,7 +37,7 @@
           class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
         >
           <option :value="null">全部</option>
-          <option v-for="m in models" :key="m.id" :value="m.id">{{ m.display_name }}</option>
+          <option v-for="m in filteredModels" :key="m.id" :value="m.id">{{ m.display_name }}</option>
         </select>
       </div>
       <div v-if="authStore.isAdmin">
@@ -64,6 +78,7 @@
           <thead>
             <tr class="text-gray-500 border-b">
               <th class="py-2 text-left">模型</th>
+              <th class="py-2 text-left">類型</th>
               <th class="py-2 text-right">Token 數</th>
               <th class="py-2 text-right">請求數</th>
             </tr>
@@ -71,11 +86,16 @@
           <tbody>
             <tr v-for="m in usageStore.topModels" :key="m.model_id" class="border-b last:border-0">
               <td class="py-2">{{ m.model_name }}</td>
+              <td class="py-2">
+                <span class="text-xs px-1.5 py-0.5 rounded" :class="typeTagColor(m.model_type)">
+                  {{ (m.model_type || '').toUpperCase() }}
+                </span>
+              </td>
               <td class="py-2 text-right font-mono">{{ formatNum(m.total_tokens) }}</td>
               <td class="py-2 text-right font-mono">{{ formatNum(m.total_requests) }}</td>
             </tr>
             <tr v-if="usageStore.topModels.length === 0">
-              <td colspan="3" class="py-4 text-center text-gray-400">暫無資料</td>
+              <td colspan="4" class="py-4 text-center text-gray-400">暫無資料</td>
             </tr>
           </tbody>
         </table>
@@ -108,7 +128,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useUsageStore } from '../stores/usage'
 import { useAuthStore } from '../stores/auth'
 import { listModels } from '../api/models'
@@ -122,9 +142,15 @@ const authStore = useAuthStore()
 const selectedRange = ref('24h')
 const selectedModel = ref(null)
 const selectedUser = ref(null)
+const selectedModelType = ref(null)
 const groupBy = ref('total')
 const models = ref([])
 const users = ref([])
+
+const filteredModels = computed(() => {
+  if (!selectedModelType.value) return models.value
+  return models.value.filter(m => m.model_type === selectedModelType.value)
+})
 
 onMounted(async () => {
   try {
@@ -144,11 +170,18 @@ onMounted(async () => {
   if (authStore.isAdmin) await usageStore.fetchTopUsers()
 })
 
+function onModelTypeChange() {
+  selectedModel.value = null
+  loadChart()
+  usageStore.fetchTopModels(10, selectedModelType.value || undefined)
+}
+
 async function loadChart() {
   await usageStore.fetchChart({
     range: selectedRange.value,
     model_id: selectedModel.value || undefined,
     user_id: selectedUser.value || undefined,
+    model_type: selectedModelType.value || undefined,
     group_by: groupBy.value,
   })
 }
@@ -158,7 +191,18 @@ function handleExport() {
     range: selectedRange.value,
     model_id: selectedModel.value || undefined,
     user_id: selectedUser.value || undefined,
+    model_type: selectedModelType.value || undefined,
   })
+}
+
+function typeTagColor(type) {
+  const colors = {
+    llm: 'bg-blue-50 text-blue-700',
+    vlm: 'bg-purple-50 text-purple-700',
+    embedding: 'bg-green-50 text-green-700',
+    agent: 'bg-orange-50 text-orange-700',
+  }
+  return colors[type] || 'bg-gray-50 text-gray-700'
 }
 
 function formatNum(n) {

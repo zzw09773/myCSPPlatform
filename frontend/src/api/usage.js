@@ -1,13 +1,13 @@
 import client from './client'
 
-export const getUsageSummary = () =>
-  client.get('/api/usage/summary')
+export const getUsageSummary = (params) =>
+  client.get('/api/usage/summary', { params })
 
 export const getUsageChart = (params) =>
   client.get('/api/usage/chart', { params })
 
-export const getTopModels = (limit = 10) =>
-  client.get('/api/usage/top-models', { params: { limit } })
+export const getTopModels = (params) =>
+  client.get('/api/usage/top-models', { params })
 
 export const getTopUsers = (limit = 10) =>
   client.get('/api/usage/top-users', { params: { limit } })

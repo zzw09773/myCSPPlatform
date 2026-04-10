@@ -9,8 +9,9 @@ export const useUsageStore = defineStore('usage', () => {
   const topUsers = ref([])
   const loading = ref(false)
 
-  async function fetchSummary() {
-    const { data } = await getUsageSummary()
+  async function fetchSummary(modelType) {
+    const params = modelType ? { model_type: modelType } : {}
+    const { data } = await getUsageSummary(params)
     summary.value = data
   }
 
@@ -24,8 +25,10 @@ export const useUsageStore = defineStore('usage', () => {
     }
   }
 
-  async function fetchTopModels(limit = 10) {
-    const { data } = await getTopModels(limit)
+  async function fetchTopModels(limit = 10, modelType) {
+    const params = { limit }
+    if (modelType) params.model_type = modelType
+    const { data } = await getTopModels(params)
     topModels.value = data
   }
 

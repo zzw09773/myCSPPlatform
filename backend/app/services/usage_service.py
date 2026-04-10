@@ -10,7 +10,19 @@ from app.models.user import User
 from app.utils.time_helpers import get_time_range
 
 
-def get_usage_summary(db: Session, user_id: int | None = None) -> dict:
+def _get_model_ids_by_type(db: Session, model_type: str) -> list[int]:
+    """Get all model IDs matching a given model_type."""
+    return [
+        m.id for m in
+        db.query(ModelRegistry.id).filter(ModelRegistry.model_type == model_type).all()
+    ]
+
+
+def get_usage_summary(
+    db: Session,
+    user_id: int | None = None,
+    model_type: str | None = None,
+) -> dict:
     """Get aggregate usage summary for the last 24 hours."""
     start_time, _ = get_time_range("24h")
 
@@ -23,14 +35,17 @@ def get_usage_summary(db: Session, user_id: int | None = None) -> dict:
 
     if user_id:
         query = query.filter(TokenUsage.user_id == user_id)
+    if model_type:
+        model_ids = _get_model_ids_by_type(db, model_type)
+        query = query.filter(TokenUsage.model_id.in_(model_ids))
 
     result = query.first()
 
-    active_models = (
-        db.query(func.count(ModelRegistry.id))
-        .filter(ModelRegistry.is_active == True)
-        .scalar()
-    )
+    active_models_q = db.query(func.count(ModelRegistry.id)).filter(ModelRegistry.is_active == True)
+    if model_type:
+        active_models_q = active_models_q.filter(ModelRegistry.model_type == model_type)
+    active_models = active_models_q.scalar()
+
     active_keys = (
         db.query(func.count(ApiKey.id))
         .filter(ApiKey.is_active == True)
@@ -52,6 +67,7 @@ def get_chart_data(
     range_key: str,
     model_id: int | None = None,
     user_id: int | None = None,
+    model_type: str | None = None,
     group_by: str = "total",
 ) -> dict:
     """Get time-series data for line charts."""
@@ -92,6 +108,9 @@ def get_chart_data(
         query = query.filter(TokenUsage.model_id == model_id)
     if user_id:
         query = query.filter(TokenUsage.user_id == user_id)
+    if model_type:
+        model_ids = _get_model_ids_by_type(db, model_type)
+        query = query.filter(TokenUsage.model_id.in_(model_ids))
 
     query = query.group_by("bucket_ts")
     if group_col is not None:
@@ -143,15 +162,27 @@ def get_chart_data(
         return {"timestamps": all_buckets, "series": series}
 
 
-def get_top_models(db: Session, limit: int = 10) -> list[dict]:
+def get_top_models(
+    db: Session,
+    limit: int = 10,
+    model_type: str | None = None,
+) -> list[dict]:
     start_time, _ = get_time_range("30d")
-    results = (
+    query = (
         db.query(
             TokenUsage.model_id,
             func.sum(TokenUsage.total_tokens).label("total_tokens"),
             func.count(TokenUsage.id).label("total_requests"),
         )
         .filter(TokenUsage.request_timestamp >= start_time)
+    )
+
+    if model_type:
+        model_ids = _get_model_ids_by_type(db, model_type)
+        query = query.filter(TokenUsage.model_id.in_(model_ids))
+
+    results = (
+        query
         .group_by(TokenUsage.model_id)
         .order_by(func.sum(TokenUsage.total_tokens).desc())
         .limit(limit)
@@ -203,6 +234,7 @@ def export_usage_csv(
     range_key: str,
     model_id: int | None = None,
     user_id: int | None = None,
+    model_type: str | None = None,
 ) -> str:
     """Export usage data as CSV string."""
     start_time, _ = get_time_range(range_key)
@@ -228,6 +260,8 @@ def export_usage_csv(
         query = query.filter(TokenUsage.model_id == model_id)
     if user_id:
         query = query.filter(TokenUsage.user_id == user_id)
+    if model_type:
+        query = query.filter(ModelRegistry.model_type == model_type)
 
     query = query.order_by(TokenUsage.request_timestamp.desc())
     rows = query.all()

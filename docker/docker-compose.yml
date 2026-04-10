@@ -28,7 +28,8 @@ services:
             "model_type": "llm",
             "endpoint_url": "http://vllm-llm:8000",
             "api_version": "v1",
-            "description": "vLLM 部署的 Llama 3 70B 模型"
+            "description": "vLLM 部署的 Llama 3 70B 模型",
+            "context_window": 8192
           },
           {
             "name": "nv-embed-v2",
@@ -37,6 +38,15 @@ services:
             "endpoint_url": "http://triton-embedding:8000",
             "api_version": "v2",
             "description": "Triton 部署的 NV-Embed-V2 嵌入模型（使用 /v2/embeddings）"
+          },
+          {
+            "name": "aia/asrd",
+            "display_name": "AIA ASRD Agent",
+            "model_type": "agent",
+            "endpoint_url": "http://mlsteam-host:45023",
+            "api_version": "v1",
+            "description": "MLSteam 部署的 ASRD Agent（底層使用 Llama 3 70B）",
+            "base_model": "llama3-70b"
           }
         ]
       # -------------------------------------------------------
@@ -46,7 +56,8 @@ services:
         AUTO_REGISTER_LINKS=[
           {"name": "n8n 工作流程", "url": "http://n8n:5678", "icon": "workflow", "description": "自動化工作流程平台"},
           {"name": "GitLab", "url": "http://gitlab:8929", "icon": "git", "description": "程式碼版本控制"},
-          {"name": "MyNotebookLM", "url": "http://notebooklm:3000", "icon": "notebook", "description": "AI 筆記本"}
+          {"name": "MyNotebookLM", "url": "http://notebooklm:3000", "icon": "notebook", "description": "AI 筆記本"},
+          {"name": "MLSteam", "url": "https://mlsteam.ncsist.org.tw", "icon": "cpu", "description": "MLOps 平台 - Agent 開發與部署"}
         ]
     restart: unless-stopped
     # depends_on:
@@ -126,6 +137,26 @@ services:
   #     - /path/to/trt-engines:/engines
   #     - /path/to/triton-trt-repo:/models
   #   command: tritonserver --model-repository=/models
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   restart: unless-stopped
+
+  # ============================================================
+  # MLSteam Agent（由 MLSteam 平台部署，通常不需要在此啟動）
+  # 只需在 AUTO_REGISTER_MODELS 中註冊端點即可
+  # ============================================================
+  # 範例：如果 Agent 是獨立容器部署
+  # mlsteam-agent:
+  #   image: your-agent-image:latest
+  #   ports:
+  #     - "45023:8000"
+  #   environment:
+  #     - BASE_MODEL_URL=http://vllm-llm:8000   # Agent 使用的底層 LLM
   #   deploy:
   #     resources:
   #       reservations:

@@ -5,11 +5,12 @@ from pydantic import BaseModel
 class ModelCreate(BaseModel):
     name: str
     display_name: str
-    model_type: str  # 'llm' / 'vlm' / 'embedding'
+    model_type: str  # 'llm' / 'vlm' / 'embedding' / 'agent'
     endpoint_url: str
     api_version: str = "v1"
     description: str | None = None
     context_window: int | None = None
+    base_model_id: int | None = None  # For agents: the underlying LLM model ID
 
 
 class ModelUpdate(BaseModel):
@@ -20,6 +21,7 @@ class ModelUpdate(BaseModel):
     is_active: bool | None = None
     description: str | None = None
     context_window: int | None = None
+    base_model_id: int | None = None
 
 
 class ModelResponse(BaseModel):
@@ -34,6 +36,8 @@ class ModelResponse(BaseModel):
     health_checked_at: datetime | None
     description: str | None
     context_window: int | None
+    base_model_id: int | None = None
+    base_model_name: str | None = None
     created_at: datetime
     updated_at: datetime
 

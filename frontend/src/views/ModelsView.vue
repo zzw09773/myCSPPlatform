@@ -41,6 +41,9 @@
             <td class="px-4 py-3">
               <div class="font-medium">{{ model.display_name }}</div>
               <div class="text-xs text-gray-400">{{ model.name }}</div>
+              <div v-if="model.base_model_name" class="text-xs text-indigo-500 mt-0.5">
+                底層: {{ model.base_model_name }}
+              </div>
             </td>
             <td class="px-4 py-3">
               <span class="text-xs px-2 py-0.5 rounded" :class="typeColor(model.model_type)">
@@ -108,6 +111,7 @@
                 <option value="llm">LLM</option>
                 <option value="vlm">VLM</option>
                 <option value="embedding">Embedding</option>
+                <option value="agent">Agent</option>
               </select>
             </div>
             <div>
@@ -137,6 +141,19 @@
               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
               placeholder="選填，例如 128000" />
           </div>
+          <div v-if="form.model_type === 'agent'">
+            <label class="block text-sm font-medium text-gray-700 mb-1">底層模型</label>
+            <select v-model="form.base_model_id"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
+              <option :value="null">無（獨立部署）</option>
+              <option
+                v-for="m in baseModelOptions"
+                :key="m.id"
+                :value="m.id"
+              >{{ m.display_name }} ({{ m.model_type.toUpperCase() }})</option>
+            </select>
+            <p class="text-xs text-gray-400 mt-1">選擇此 Agent 所使用的底層模型，用於關聯統計</p>
+          </div>
         </div>
 
         <div class="flex justify-end space-x-3 mt-6">
@@ -155,7 +172,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useModelsStore } from '../stores/models'
 import { useAuthStore } from '../stores/auth'
 
@@ -166,9 +183,16 @@ const editingId = ref(null)
 
 const defaultForm = () => ({
   name: '', display_name: '', model_type: 'llm', endpoint_url: '',
-  api_version: 'v1', description: '', context_window: null,
+  api_version: 'v1', description: '', context_window: null, base_model_id: null,
 })
 const form = ref(defaultForm())
+
+// Non-agent models available as base model options (exclude current editing model)
+const baseModelOptions = computed(() =>
+  modelsStore.models.filter(m =>
+    m.model_type !== 'agent' && m.is_active && m.id !== editingId.value
+  )
+)
 
 onMounted(() => modelsStore.fetchModels())
 
@@ -177,6 +201,7 @@ function typeColor(type) {
     llm: 'bg-blue-50 text-blue-700',
     vlm: 'bg-purple-50 text-purple-700',
     embedding: 'bg-green-50 text-green-700',
+    agent: 'bg-orange-50 text-orange-700',
   }
   return colors[type] || 'bg-gray-50 text-gray-700'
 }
@@ -198,18 +223,23 @@ function openEditModal(model) {
     name: model.name, display_name: model.display_name,
     model_type: model.model_type, endpoint_url: model.endpoint_url,
     api_version: model.api_version, description: model.description || '',
-    context_window: model.context_window,
+    context_window: model.context_window, base_model_id: model.base_model_id || null,
   }
   showModal.value = true
 }
 
 async function handleSubmit() {
   try {
+    const payload = { ...form.value }
+    // Clear base_model_id if not agent type
+    if (payload.model_type !== 'agent') {
+      payload.base_model_id = null
+    }
     if (editingId.value) {
-      const { name, ...updateData } = form.value
+      const { name, ...updateData } = payload
       await modelsStore.update(editingId.value, updateData)
     } else {
-      await modelsStore.create(form.value)
+      await modelsStore.create(payload)
     }
     showModal.value = false
   } catch (e) {

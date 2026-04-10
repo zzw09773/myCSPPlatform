@@ -29,10 +29,15 @@ def auto_seed():
             logger.info(f"已建立管理員帳號: {settings.ADMIN_USERNAME}")
 
         # 2. Auto-register models from AUTO_REGISTER_MODELS env
+        # Two passes: first register base models, then agents (which may reference base models)
         if settings.AUTO_REGISTER_MODELS:
             try:
                 models_config = json.loads(settings.AUTO_REGISTER_MODELS)
+
+                # Pass 1: register non-agent models first
                 for m in models_config:
+                    if m.get("model_type") == "agent":
+                        continue
                     existing = db.query(ModelRegistry).filter(
                         ModelRegistry.name == m["name"]
                     ).first()
@@ -49,10 +54,57 @@ def auto_seed():
                         db.add(model)
                         logger.info(f"自動註冊模型: {m['name']} -> {m['endpoint_url']}")
                     else:
-                        # Update endpoint_url if changed
                         if existing.endpoint_url != m["endpoint_url"]:
                             existing.endpoint_url = m["endpoint_url"]
                             logger.info(f"更新模型端點: {m['name']} -> {m['endpoint_url']}")
+
+                db.flush()  # Ensure base models have IDs
+
+                # Pass 2: register agent models (may reference base_model by name)
+                for m in models_config:
+                    if m.get("model_type") != "agent":
+                        continue
+                    existing = db.query(ModelRegistry).filter(
+                        ModelRegistry.name == m["name"]
+                    ).first()
+
+                    # Resolve base_model by name
+                    base_model_id = None
+                    base_model_name = m.get("base_model")
+                    if base_model_name:
+                        base = db.query(ModelRegistry).filter(
+                            ModelRegistry.name == base_model_name
+                        ).first()
+                        if base:
+                            base_model_id = base.id
+                        else:
+                            logger.warning(
+                                f"Agent {m['name']} 的底層模型 '{base_model_name}' 未找到"
+                            )
+
+                    if not existing:
+                        model = ModelRegistry(
+                            name=m["name"],
+                            display_name=m.get("display_name", m["name"]),
+                            model_type="agent",
+                            endpoint_url=m["endpoint_url"],
+                            api_version=m.get("api_version", "v1"),
+                            description=m.get("description", ""),
+                            context_window=m.get("context_window"),
+                            base_model_id=base_model_id,
+                        )
+                        db.add(model)
+                        logger.info(
+                            f"自動註冊 Agent: {m['name']} -> {m['endpoint_url']}"
+                            f" (底層: {base_model_name or '無'})"
+                        )
+                    else:
+                        if existing.endpoint_url != m["endpoint_url"]:
+                            existing.endpoint_url = m["endpoint_url"]
+                        if base_model_id and existing.base_model_id != base_model_id:
+                            existing.base_model_id = base_model_id
+                            logger.info(f"更新 Agent 底層模型: {m['name']} -> {base_model_name}")
+
             except json.JSONDecodeError as e:
                 logger.error(f"AUTO_REGISTER_MODELS JSON 解析失敗: {e}")
 
