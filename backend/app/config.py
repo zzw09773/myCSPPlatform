@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     # Static files
     STATIC_DIR: str = str(Path(__file__).parent / "static")
 
+    # Auto-register models on startup (JSON string)
+    # Format: '[{"name":"llama3-70b","display_name":"Llama 3 70B","model_type":"llm","endpoint_url":"http://vllm:8000","api_version":"v1"}]'
+    AUTO_REGISTER_MODELS: str = ""
+
+    # Auto-register platform links on startup (JSON string)
+    # Format: '[{"name":"n8n","url":"http://n8n:5678","icon":"workflow","description":"自動化工作流程"}]'
+    AUTO_REGISTER_LINKS: str = ""
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

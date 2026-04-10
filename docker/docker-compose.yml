@@ -1,4 +1,7 @@
 services:
+  # ============================================================
+  # CSP Platform - 管理平台
+  # ============================================================
   csp:
     build:
       context: ..
@@ -13,4 +16,121 @@ services:
       - DATABASE_URL=sqlite:///./data/csp.db
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+      # -------------------------------------------------------
+      # 自動註冊模型（啟動時自動寫入 DB，無需手動操作）
+      # 修改下方 JSON 配置你的實際模型端點
+      # -------------------------------------------------------
+      - |
+        AUTO_REGISTER_MODELS=[
+          {
+            "name": "llama3-70b",
+            "display_name": "Llama 3 70B Instruct",
+            "model_type": "llm",
+            "endpoint_url": "http://vllm-llm:8000",
+            "api_version": "v1",
+            "description": "vLLM 部署的 Llama 3 70B 模型"
+          },
+          {
+            "name": "nv-embed-v2",
+            "display_name": "NVIDIA NV-Embed V2",
+            "model_type": "embedding",
+            "endpoint_url": "http://triton-embedding:8000",
+            "api_version": "v2",
+            "description": "Triton 部署的 NV-Embed-V2 嵌入模型（使用 /v2/embeddings）"
+          }
+        ]
+      # -------------------------------------------------------
+      # 自動註冊平台連結（儀表板卡片）
+      # -------------------------------------------------------
+      - |
+        AUTO_REGISTER_LINKS=[
+          {"name": "n8n 工作流程", "url": "http://n8n:5678", "icon": "workflow", "description": "自動化工作流程平台"},
+          {"name": "GitLab", "url": "http://gitlab:8929", "icon": "git", "description": "程式碼版本控制"},
+          {"name": "MyNotebookLM", "url": "http://notebooklm:3000", "icon": "notebook", "description": "AI 筆記本"}
+        ]
     restart: unless-stopped
+    # depends_on:
+    #   - vllm-llm
+    #   - triton-embedding
+
+  # ============================================================
+  # 以下為模型服務範例，請依你的實際環境取消註解並修改
+  # ============================================================
+
+  # --- vLLM (LLM) ---
+  # vllm-llm:
+  #   image: vllm/vllm-openai:latest
+  #   ports:
+  #     - "8001:8000"
+  #   volumes:
+  #     - /path/to/models:/models
+  #   environment:
+  #     - NVIDIA_VISIBLE_DEVICES=0
+  #   command: >
+  #     --model /models/Meta-Llama-3-70B-Instruct
+  #     --tensor-parallel-size 1
+  #     --gpu-memory-utilization 0.9
+  #     --max-model-len 8192
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   restart: unless-stopped
+
+  # --- vLLM (VLM) ---
+  # vllm-vlm:
+  #   image: vllm/vllm-openai:latest
+  #   ports:
+  #     - "8002:8000"
+  #   volumes:
+  #     - /path/to/models:/models
+  #   command: >
+  #     --model /models/Qwen2-VL-7B-Instruct
+  #     --gpu-memory-utilization 0.9
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   restart: unless-stopped
+
+  # --- Triton (Embedding, e.g. nv-embed-v2) ---
+  # triton-embedding:
+  #   image: nvcr.io/nvidia/tritonserver:24.01-py3
+  #   ports:
+  #     - "8003:8000"
+  #     - "8004:8001"  # gRPC
+  #   volumes:
+  #     - /path/to/triton-model-repo:/models
+  #   command: tritonserver --model-repository=/models
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   restart: unless-stopped
+
+  # --- TensorRT-LLM via Triton ---
+  # tensorrt-llm:
+  #   image: nvcr.io/nvidia/tritonserver:24.01-trtllm-python-py3
+  #   ports:
+  #     - "8005:8000"
+  #   volumes:
+  #     - /path/to/trt-engines:/engines
+  #     - /path/to/triton-trt-repo:/models
+  #   command: tritonserver --model-repository=/models
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   restart: unless-stopped

@@ -33,6 +33,46 @@ docker compose up -d
 - 預設管理員帳號：`admin`
 - 預設密碼：`changeme`
 
+### 模型自動註冊
+
+編輯 `docker/docker-compose.yml` 中的 `AUTO_REGISTER_MODELS` 環境變數，CSP 平台啟動時會自動註冊你的模型：
+
+```yaml
+environment:
+  - |
+    AUTO_REGISTER_MODELS=[
+      {
+        "name": "llama3-70b",
+        "display_name": "Llama 3 70B Instruct",
+        "model_type": "llm",
+        "endpoint_url": "http://vllm-llm:8000",
+        "api_version": "v1"
+      },
+      {
+        "name": "nv-embed-v2",
+        "display_name": "NVIDIA NV-Embed V2",
+        "model_type": "embedding",
+        "endpoint_url": "http://triton-embedding:8000",
+        "api_version": "v2"
+      }
+    ]
+```
+
+支援的 `model_type`：`llm`、`vlm`、`embedding`
+支援的 `api_version`：`v1`（預設）、`v2`（用於 nv-embed-v2 的 `/v2/embeddings`）
+
+同樣也可以自動註冊平台連結（儀表板卡片），設定 `AUTO_REGISTER_LINKS` 環境變數。
+
+### 搭配模型服務一起部署
+
+`docker/docker-compose.yml` 中已包含 vLLM、Triton、TensorRT-LLM 的範例設定（已註解），取消註解並修改路徑即可一起部署：
+
+```bash
+cd docker
+# 編輯 docker-compose.yml，取消需要的模型服務註解
+docker compose up -d
+```
+
 ### 開發模式
 
 ```bash

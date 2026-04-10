@@ -33,6 +33,10 @@ async def lifespan(app: FastAPI):
     setup_logging()
     Base.metadata.create_all(bind=engine)
 
+    # Auto-seed: create admin, register models & links from env vars
+    from app.services.auto_seed import auto_seed
+    auto_seed()
+
     # Start background tasks
     from app.services.health_checker import start_health_checker
     from app.services.usage_writer import start_usage_writer
