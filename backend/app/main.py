@@ -87,6 +87,16 @@ async def custom_swagger_ui():
     )
 
 
+@app.get("/health", tags=["health"])
+async def health_check():
+    """Health check endpoint for container orchestration and monitoring."""
+    return {
+        "status": "healthy",
+        "version": settings.APP_VERSION,
+        "service": settings.APP_NAME,
+    }
+
+
 # Serve frontend SPA - check multiple possible locations
 frontend_dist = None
 for candidate in [
