@@ -1,0 +1,16 @@
+services:
+  csp:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../data:/app/data
+      - ../logs:/app/logs
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-please-change-this-secret-key}
+      - DATABASE_URL=sqlite:///./data/csp.db
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+    restart: unless-stopped
