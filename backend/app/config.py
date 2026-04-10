@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     USAGE_BATCH_SIZE: int = 100
     USAGE_FLUSH_INTERVAL: int = 5
 
+    # Site URL (for external access, used by platform links)
+    SITE_URL: str = "http://localhost"
+
     # Static files
     STATIC_DIR: str = str(Path(__file__).parent / "static")
 

@@ -1,64 +1,37 @@
 services:
   # ============================================================
+  # Nginx 反向代理（統一入口）
+  # ============================================================
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${NGINX_PORT:-80}:80"
+      # 如需 HTTPS，取消下行註解並掛載憑證
+      # - "${NGINX_SSL_PORT:-443}:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # HTTPS 憑證（選用）
+      # - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - csp
+    restart: unless-stopped
+
+  # ============================================================
   # CSP Platform - 管理平台
   # ============================================================
   csp:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    ports:
-      - "8000:8000"
+    # 透過 nginx 存取，不需對外暴露 port
+    # 如需直連後端可取消下行註解
+    # ports:
+    #   - "8000:8000"
     volumes:
       - ../data:/app/data
       - ../logs:/app/logs
-    environment:
-      - SECRET_KEY=${SECRET_KEY:-please-change-this-secret-key}
-      - DATABASE_URL=sqlite:///./data/csp.db
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
-      # -------------------------------------------------------
-      # 自動註冊模型（啟動時自動寫入 DB，無需手動操作）
-      # 修改下方 JSON 配置你的實際模型端點
-      # -------------------------------------------------------
-      - |
-        AUTO_REGISTER_MODELS=[
-          {
-            "name": "llama3-70b",
-            "display_name": "Llama 3 70B Instruct",
-            "model_type": "llm",
-            "endpoint_url": "http://vllm-llm:8000",
-            "api_version": "v1",
-            "description": "vLLM 部署的 Llama 3 70B 模型",
-            "context_window": 8192
-          },
-          {
-            "name": "nv-embed-v2",
-            "display_name": "NVIDIA NV-Embed V2",
-            "model_type": "embedding",
-            "endpoint_url": "http://triton-embedding:8000",
-            "api_version": "v2",
-            "description": "Triton 部署的 NV-Embed-V2 嵌入模型（使用 /v2/embeddings）"
-          },
-          {
-            "name": "aia/asrd",
-            "display_name": "AIA ASRD Agent",
-            "model_type": "agent",
-            "endpoint_url": "http://mlsteam-host:45023",
-            "api_version": "v1",
-            "description": "MLSteam 部署的 ASRD Agent（底層使用 Llama 3 70B）",
-            "base_model": "llama3-70b"
-          }
-        ]
-      # -------------------------------------------------------
-      # 自動註冊平台連結（儀表板卡片）
-      # -------------------------------------------------------
-      - |
-        AUTO_REGISTER_LINKS=[
-          {"name": "n8n 工作流程", "url": "http://n8n:5678", "icon": "workflow", "description": "自動化工作流程平台"},
-          {"name": "GitLab", "url": "http://gitlab:8929", "icon": "git", "description": "程式碼版本控制"},
-          {"name": "MyNotebookLM", "url": "http://notebooklm:3000", "icon": "notebook", "description": "AI 筆記本"},
-          {"name": "MLSteam", "url": "https://mlsteam.ncsist.org.tw", "icon": "cpu", "description": "MLOps 平台 - Agent 開發與部署"}
-        ]
+    env_file:
+      - ../.env
     restart: unless-stopped
     # depends_on:
     #   - vllm-llm
@@ -66,13 +39,15 @@ services:
 
   # ============================================================
   # 以下為模型服務範例，請依你的實際環境取消註解並修改
+  # 模型服務在 Docker 內部網路互通，不需對外暴露 port
+  # CSP 的代理層會透過內部網路轉發請求
   # ============================================================
 
   # --- vLLM (LLM) ---
   # vllm-llm:
   #   image: vllm/vllm-openai:latest
-  #   ports:
-  #     - "8001:8000"
+  #   # ports:                          # 透過 nginx 代理，無需暴露
+  #   #   - "8001:8000"
   #   volumes:
   #     - /path/to/models:/models
   #   environment:
@@ -94,8 +69,6 @@ services:
   # --- vLLM (VLM) ---
   # vllm-vlm:
   #   image: vllm/vllm-openai:latest
-  #   ports:
-  #     - "8002:8000"
   #   volumes:
   #     - /path/to/models:/models
   #   command: >
@@ -113,9 +86,6 @@ services:
   # --- Triton (Embedding, e.g. nv-embed-v2) ---
   # triton-embedding:
   #   image: nvcr.io/nvidia/tritonserver:24.01-py3
-  #   ports:
-  #     - "8003:8000"
-  #     - "8004:8001"  # gRPC
   #   volumes:
   #     - /path/to/triton-model-repo:/models
   #   command: tritonserver --model-repository=/models
@@ -131,8 +101,6 @@ services:
   # --- TensorRT-LLM via Triton ---
   # tensorrt-llm:
   #   image: nvcr.io/nvidia/tritonserver:24.01-trtllm-python-py3
-  #   ports:
-  #     - "8005:8000"
   #   volumes:
   #     - /path/to/trt-engines:/engines
   #     - /path/to/triton-trt-repo:/models
@@ -148,15 +116,12 @@ services:
 
   # ============================================================
   # MLSteam Agent（由 MLSteam 平台部署，通常不需要在此啟動）
-  # 只需在 AUTO_REGISTER_MODELS 中註冊端點即可
+  # 只需在 .env 的 AUTO_REGISTER_MODELS 中註冊端點即可
   # ============================================================
-  # 範例：如果 Agent 是獨立容器部署
   # mlsteam-agent:
   #   image: your-agent-image:latest
-  #   ports:
-  #     - "45023:8000"
   #   environment:
-  #     - BASE_MODEL_URL=http://vllm-llm:8000   # Agent 使用的底層 LLM
+  #     - BASE_MODEL_URL=http://vllm-llm:8000
   #   deploy:
   #     resources:
   #       reservations:
