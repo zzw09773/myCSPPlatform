@@ -45,3 +45,7 @@ class RefreshRequest(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class AdminResetPassword(BaseModel):
+    new_password: str

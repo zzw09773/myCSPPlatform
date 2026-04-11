@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
-from app.schemas.user import UserCreate, UserUpdate, UserResponse
+from app.schemas.user import UserCreate, UserUpdate, UserResponse, AdminResetPassword
 from app.services.auth_service import require_admin
 from app.utils.security import hash_password
 
@@ -69,6 +69,21 @@ def update_user(
     db.commit()
     db.refresh(user)
     return user
+
+
+@router.post("/{user_id}/reset-password")
+def admin_reset_password(
+    user_id: int,
+    request: AdminResetPassword,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="使用者不存在")
+    user.hashed_password = hash_password(request.new_password)
+    db.commit()
+    return {"message": f"已重設使用者「{user.username}」的密碼"}
 
 
 @router.delete("/{user_id}")

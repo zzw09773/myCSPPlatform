@@ -15,9 +15,7 @@ node_modules/
 frontend/dist/
 
 # Database
-data/*.db
-data/*.db-wal
-data/*.db-shm
+*.sql.bak
 
 # Environment
 .env

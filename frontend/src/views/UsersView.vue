@@ -48,6 +48,9 @@
               <button @click="openEditModal(user)" class="text-indigo-600 hover:text-indigo-800 text-xs">
                 編輯
               </button>
+              <button @click="openResetPasswordModal(user)" class="text-orange-600 hover:text-orange-800 text-xs">
+                重設密碼
+              </button>
               <button
                 v-if="user.is_active"
                 @click="handleDeactivate(user)"
@@ -112,6 +115,35 @@
         </div>
       </div>
     </div>
+
+    <!-- Reset Password Modal -->
+    <div v-if="showResetModal" class="fixed inset-0 z-50 flex items-center justify-center">
+      <div class="fixed inset-0 bg-black/50" @click="showResetModal = false"></div>
+      <div class="relative bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+        <h3 class="text-lg font-semibold mb-4">重設密碼 — {{ resetTarget?.username }}</h3>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">新密碼</label>
+            <input v-model="resetPassword" type="password"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-orange-500"
+              placeholder="請輸入新密碼" />
+          </div>
+        </div>
+
+        <div class="flex justify-end space-x-3 mt-6">
+          <button @click="showResetModal = false"
+            class="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+            取消
+          </button>
+          <button @click="handleResetPassword"
+            :disabled="!resetPassword"
+            class="px-4 py-2 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50">
+            確認重設
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -123,6 +155,9 @@ const users = ref([])
 const showModal = ref(false)
 const editingId = ref(null)
 const form = ref({ username: '', password: '', email: '', role: 'user' })
+const showResetModal = ref(false)
+const resetTarget = ref(null)
+const resetPassword = ref('')
 
 async function fetchUsers() {
   const { data } = await client.get('/api/users')
@@ -157,6 +192,24 @@ async function handleSubmit() {
     await fetchUsers()
   } catch (e) {
     alert(e.response?.data?.detail || '操作失敗')
+  }
+}
+
+function openResetPasswordModal(user) {
+  resetTarget.value = user
+  resetPassword.value = ''
+  showResetModal.value = true
+}
+
+async function handleResetPassword() {
+  try {
+    await client.post(`/api/users/${resetTarget.value.id}/reset-password`, {
+      new_password: resetPassword.value,
+    })
+    showResetModal.value = false
+    alert(`已重設使用者「${resetTarget.value.username}」的密碼`)
+  } catch (e) {
+    alert(e.response?.data?.detail || '重設密碼失敗')
   }
 }
 

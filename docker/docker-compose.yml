@@ -27,6 +27,32 @@ services:
       - csp_network
 
   # ============================================================
+  # PostgreSQL 資料庫
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: csp-postgres
+    expose:
+      - "5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-csp}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-csp_password}
+      POSTGRES_DB: ${DB_NAME:-csp}
+      TZ: Asia/Taipei
+      PGTZ: Asia/Taipei
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-csp} -d ${DB_NAME:-csp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - csp_network
+
+  # ============================================================
   # CSP Platform - 管理平台
   # ============================================================
   csp:
@@ -37,7 +63,6 @@ services:
     expose:
       - "8000"
     volumes:
-      - ../data:/app/data
       - ../logs:/app/logs
     env_file:
       - ../.env
@@ -49,6 +74,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - csp_network
@@ -173,3 +201,6 @@ services:
 networks:
   csp_network:
     driver: bridge
+
+volumes:
+  postgres_data:

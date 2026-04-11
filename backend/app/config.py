@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # Database
-    DATABASE_URL: str = "sqlite:///./data/csp.db"
+    DATABASE_URL: str = "postgresql://csp:csp_password@localhost:5432/csp"
 
     # JWT
     SECRET_KEY: str = "your-secret-key-change-this-in-production"

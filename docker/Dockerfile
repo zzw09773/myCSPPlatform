@@ -22,7 +22,7 @@ COPY --from=frontend-build /build/dist /app/frontend-dist
 
 # Copy scripts and data directory
 COPY scripts/ /app/scripts/
-RUN mkdir -p /app/data /app/logs
+RUN mkdir -p /app/logs
 
 # Download Swagger UI static files for offline use
 RUN pip install --no-cache-dir requests && \
@@ -32,7 +32,7 @@ open('app/static/swagger-ui-bundle.js','wb').write(requests.get('https://cdn.jsd
 open('app/static/swagger-ui.css','wb').write(requests.get('https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.18.2/swagger-ui.css').content); \
 print('Swagger UI downloaded')" 2>/dev/null || echo "Swagger UI download skipped (offline build)"
 
-ENV DATABASE_URL=sqlite:///./data/csp.db
+ENV DATABASE_URL=postgresql://csp:csp_password@postgres:5432/csp
 
 EXPOSE 8000
 

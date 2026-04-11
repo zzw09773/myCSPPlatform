@@ -84,7 +84,7 @@ def get_chart_data(
 
     # Build query
     bucket_expr = text(
-        f"(CAST(strftime('%s', request_timestamp) AS INTEGER) / {bucket_seconds}) * {bucket_seconds}"
+        f"(CAST(EXTRACT(EPOCH FROM request_timestamp) AS INTEGER) / {bucket_seconds}) * {bucket_seconds}"
     )
 
     if group_by == "model":
