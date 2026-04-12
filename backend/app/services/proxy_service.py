@@ -21,6 +21,7 @@ async def proxy_request(
     model: ModelRegistry,
     api_key_id: int,
     user_id: int,
+    department_id: int | None,
     request_body: dict,
     endpoint_path: str,
 ) -> dict:
@@ -78,6 +79,7 @@ async def proxy_request(
             await enqueue_usage(
                 api_key_id=api_key_id,
                 user_id=user_id,
+                department_id=department_id,
                 model_id=model.id,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,

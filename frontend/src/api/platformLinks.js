@@ -1,7 +1,7 @@
 import client from './client'
 
-export const listPlatformLinks = () =>
-  client.get('/api/platform-links')
+export const listPlatformLinks = (params) =>
+  client.get('/api/platform-links', { params })
 
 export const createPlatformLink = (data) =>
   client.post('/api/platform-links', data)

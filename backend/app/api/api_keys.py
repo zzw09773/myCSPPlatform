@@ -9,6 +9,7 @@ from app.schemas.api_key import (
     ApiKeyResponse,
     ApiKeyCreatedResponse,
 )
+from app.services.audit_service import log_audit_event
 from app.services.auth_service import get_current_user
 from app.services.api_key_service import create_api_key
 
@@ -73,6 +74,15 @@ def create_key(
     )
     resp = _build_response(api_key)
     resp["full_key"] = full_key
+    log_audit_event(
+        db,
+        actor=current_user,
+        action="create",
+        resource_type="api_key",
+        resource_id=api_key.id,
+        detail=f"建立 API Key「{api_key.name}」",
+        commit=True,
+    )
     return resp
 
 
@@ -120,6 +130,15 @@ def update_key(
 
     db.commit()
     db.refresh(api_key)
+    log_audit_event(
+        db,
+        actor=current_user,
+        action="update",
+        resource_type="api_key",
+        resource_id=api_key.id,
+        detail=f"更新 API Key「{api_key.name}」",
+        commit=True,
+    )
     return _build_response(api_key)
 
 
@@ -134,6 +153,11 @@ def regenerate_key(
         raise HTTPException(status_code=404, detail="API Key 不存在")
     if current_user.role != "admin" and old_key.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="無權限操作此 API Key")
+    if not old_key.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail="已撤銷的 API Key 無法重新核發，請改為建立新的 API Key",
+        )
 
     old_model_ids = [m.id for m in old_key.allowed_models]
 
@@ -151,6 +175,15 @@ def regenerate_key(
     )
     resp = _build_response(new_key)
     resp["full_key"] = full_key
+    log_audit_event(
+        db,
+        actor=current_user,
+        action="regenerate",
+        resource_type="api_key",
+        resource_id=new_key.id,
+        detail=f"重新核發 API Key「{new_key.name}」",
+        commit=True,
+    )
     return resp
 
 
@@ -168,4 +201,13 @@ def revoke_key(
 
     api_key.is_active = False
     db.commit()
+    log_audit_event(
+        db,
+        actor=current_user,
+        action="revoke",
+        resource_type="api_key",
+        resource_id=api_key.id,
+        detail=f"撤銷 API Key「{api_key.name}」",
+        commit=True,
+    )
     return {"message": "API Key 已撤銷"}

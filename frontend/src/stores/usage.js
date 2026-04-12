@@ -1,16 +1,23 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { getUsageSummary, getUsageChart, getTopModels, getTopUsers, exportUsageCsv } from '../api/usage'
+import {
+  getUsageSummary,
+  getUsageChart,
+  getTopModels,
+  getTopUsers,
+  getTopDepartments,
+  exportUsageCsv,
+} from '../api/usage'
 
 export const useUsageStore = defineStore('usage', () => {
   const summary = ref(null)
   const chartData = ref(null)
   const topModels = ref([])
   const topUsers = ref([])
+  const topDepartments = ref([])
   const loading = ref(false)
 
-  async function fetchSummary(modelType) {
-    const params = modelType ? { model_type: modelType } : {}
+  async function fetchSummary(params = {}) {
     const { data } = await getUsageSummary(params)
     summary.value = data
   }
@@ -25,16 +32,19 @@ export const useUsageStore = defineStore('usage', () => {
     }
   }
 
-  async function fetchTopModels(limit = 10, modelType) {
-    const params = { limit }
-    if (modelType) params.model_type = modelType
-    const { data } = await getTopModels(params)
+  async function fetchTopModels(limit = 10, params = {}) {
+    const { data } = await getTopModels({ limit, ...params })
     topModels.value = data
   }
 
-  async function fetchTopUsers(limit = 10) {
-    const { data } = await getTopUsers(limit)
+  async function fetchTopUsers(limit = 10, params = {}) {
+    const { data } = await getTopUsers({ limit, ...params })
     topUsers.value = data
+  }
+
+  async function fetchTopDepartments(limit = 10, params = {}) {
+    const { data } = await getTopDepartments({ limit, ...params })
+    topDepartments.value = data
   }
 
   async function exportCsv(params) {
@@ -49,7 +59,7 @@ export const useUsageStore = defineStore('usage', () => {
   }
 
   return {
-    summary, chartData, topModels, topUsers, loading,
-    fetchSummary, fetchChart, fetchTopModels, fetchTopUsers, exportCsv,
+    summary, chartData, topModels, topUsers, topDepartments, loading,
+    fetchSummary, fetchChart, fetchTopModels, fetchTopUsers, fetchTopDepartments, exportCsv,
   }
 })

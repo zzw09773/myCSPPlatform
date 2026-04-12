@@ -42,6 +42,7 @@ async def chat_completions(
         model=model,
         api_key_id=api_key.id,
         user_id=api_key.user_id,
+        department_id=api_key.user.department_id if api_key.user else None,
         request_body=body,
         endpoint_path="/v1/chat/completions",
     )
@@ -63,6 +64,7 @@ async def embeddings_v1(
         model=model,
         api_key_id=api_key.id,
         user_id=api_key.user_id,
+        department_id=api_key.user.department_id if api_key.user else None,
         request_body=body,
         endpoint_path="/v1/embeddings",
     )
@@ -84,6 +86,7 @@ async def embeddings_v2(
         model=model,
         api_key_id=api_key.id,
         user_id=api_key.user_id,
+        department_id=api_key.user.department_id if api_key.user else None,
         request_body=body,
         endpoint_path="/v2/embeddings",
     )

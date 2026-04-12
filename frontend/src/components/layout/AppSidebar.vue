@@ -46,6 +46,11 @@ const menuItems = computed(() => {
   ]
   if (authStore.isAdmin) {
     items.push({ path: '/users', label: '使用者管理', icon: '&#128101;' })
+    items.push({ path: '/departments', label: '部門設定', icon: '&#127970;' })
+    items.push({ path: '/alerts', label: '告警中心', icon: '&#9888;' })
+    items.push({ path: '/audit-logs', label: '審計日誌', icon: '&#128221;' })
+    items.push({ path: '/auth-providers', label: 'SSO / LDAP / OIDC', icon: '&#128274;' })
+    items.push({ path: '/platform-links', label: '平台連結設定', icon: '&#128279;' })
   }
   return items
 })

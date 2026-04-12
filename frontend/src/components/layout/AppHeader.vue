@@ -107,6 +107,11 @@ const pageTitles = {
   '/models': '模型管理',
   '/usage': '用量分析',
   '/users': '使用者管理',
+  '/departments': '部門設定',
+  '/alerts': '告警中心',
+  '/audit-logs': '審計日誌',
+  '/auth-providers': 'SSO / LDAP / OIDC',
+  '/platform-links': '平台連結設定',
 }
 
 const pageTitle = computed(() => pageTitles[route.path] || 'CSP Platform')

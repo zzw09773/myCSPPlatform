@@ -6,6 +6,7 @@ import httpx
 from app.database import SessionLocal
 from app.models.model_registry import ModelRegistry
 from app.config import settings
+from app.services.alert_service import resolve_alert_by_fingerprint, upsert_alert
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,24 @@ async def _health_check_loop():
                         logger.info(
                             f"模型 {model.name} 狀態變更: {model.health_status} -> {status}"
                         )
+                    if status == "offline":
+                        upsert_alert(
+                            db,
+                            fingerprint=f"health:model:{model.id}",
+                            category="health",
+                            severity="high",
+                            title=f"模型 {model.display_name} 離線",
+                            message=f"無法連線至 {model.endpoint_url}",
+                            source_type="model",
+                            source_id=model.id,
+                            metadata={
+                                "model_name": model.name,
+                                "display_name": model.display_name,
+                                "endpoint_url": model.endpoint_url,
+                            },
+                        )
+                    elif status == "online":
+                        resolve_alert_by_fingerprint(db, f"health:model:{model.id}")
                     model.health_status = status
                     model.health_checked_at = datetime.now(timezone.utc)
 

@@ -3,62 +3,107 @@ import io
 from datetime import datetime, timezone
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
+from app.models.department import Department
 from app.models.token_usage import TokenUsage
 from app.models.model_registry import ModelRegistry
-from app.models.api_key import ApiKey
 from app.models.user import User
 from app.utils.time_helpers import get_time_range
 
 
 def _get_model_ids_by_type(db: Session, model_type: str) -> list[int]:
-    """Get all model IDs matching a given model_type."""
     return [
-        m.id for m in
-        db.query(ModelRegistry.id).filter(ModelRegistry.model_type == model_type).all()
+        m.id
+        for m in db.query(ModelRegistry.id)
+        .filter(ModelRegistry.model_type == model_type)
+        .all()
     ]
+
+
+def _apply_usage_filters(
+    query,
+    db: Session,
+    *,
+    model_id: int | None = None,
+    user_id: int | None = None,
+    model_type: str | None = None,
+    department_id: int | None = None,
+):
+    if model_id:
+        query = query.filter(TokenUsage.model_id == model_id)
+    if user_id:
+        query = query.filter(TokenUsage.user_id == user_id)
+    if department_id is not None:
+        query = query.filter(TokenUsage.department_id == department_id)
+    if model_type:
+        model_ids = _get_model_ids_by_type(db, model_type)
+        query = query.filter(TokenUsage.model_id.in_(model_ids))
+    return query
 
 
 def get_usage_summary(
     db: Session,
+    range_key: str = "24h",
+    model_id: int | None = None,
     user_id: int | None = None,
     model_type: str | None = None,
+    department_id: int | None = None,
 ) -> dict:
-    """Get aggregate usage summary for the last 24 hours."""
-    start_time, _ = get_time_range("24h")
+    """Get aggregate usage summary for the selected time range."""
+    start_time, _ = get_time_range(range_key)
 
     query = db.query(
         func.count(TokenUsage.id).label("total_requests"),
-        func.coalesce(func.sum(TokenUsage.prompt_tokens), 0).label("total_prompt_tokens"),
-        func.coalesce(func.sum(TokenUsage.completion_tokens), 0).label("total_completion_tokens"),
+        func.coalesce(func.sum(TokenUsage.prompt_tokens), 0).label(
+            "total_prompt_tokens"
+        ),
+        func.coalesce(func.sum(TokenUsage.completion_tokens), 0).label(
+            "total_completion_tokens"
+        ),
         func.coalesce(func.sum(TokenUsage.total_tokens), 0).label("total_tokens"),
     ).filter(TokenUsage.request_timestamp >= start_time)
-
-    if user_id:
-        query = query.filter(TokenUsage.user_id == user_id)
-    if model_type:
-        model_ids = _get_model_ids_by_type(db, model_type)
-        query = query.filter(TokenUsage.model_id.in_(model_ids))
-
+    query = _apply_usage_filters(
+        query,
+        db,
+        model_id=model_id,
+        user_id=user_id,
+        model_type=model_type,
+        department_id=department_id,
+    )
     result = query.first()
 
-    active_models_q = db.query(func.count(ModelRegistry.id)).filter(ModelRegistry.is_active == True)
-    if model_type:
-        active_models_q = active_models_q.filter(ModelRegistry.model_type == model_type)
-    active_models = active_models_q.scalar()
-
-    active_keys = (
-        db.query(func.count(ApiKey.id))
-        .filter(ApiKey.is_active == True)
-        .scalar()
+    active_models_q = db.query(
+        func.count(func.distinct(TokenUsage.model_id))
+    ).filter(TokenUsage.request_timestamp >= start_time)
+    active_models_q = _apply_usage_filters(
+        active_models_q,
+        db,
+        model_id=model_id,
+        user_id=user_id,
+        model_type=model_type,
+        department_id=department_id,
     )
+    active_models = active_models_q.scalar() or 0
+
+    active_keys_q = db.query(
+        func.count(func.distinct(TokenUsage.api_key_id))
+    ).filter(TokenUsage.request_timestamp >= start_time)
+    active_keys_q = _apply_usage_filters(
+        active_keys_q,
+        db,
+        model_id=model_id,
+        user_id=user_id,
+        model_type=model_type,
+        department_id=department_id,
+    )
+    active_keys = active_keys_q.scalar() or 0
 
     return {
         "total_requests": result.total_requests or 0,
         "total_prompt_tokens": result.total_prompt_tokens or 0,
         "total_completion_tokens": result.total_completion_tokens or 0,
         "total_tokens": result.total_tokens or 0,
-        "active_models": active_models or 0,
-        "active_api_keys": active_keys or 0,
+        "active_models": int(active_models),
+        "active_api_keys": int(active_keys),
     }
 
 
@@ -68,6 +113,7 @@ def get_chart_data(
     model_id: int | None = None,
     user_id: int | None = None,
     model_type: str | None = None,
+    department_id: int | None = None,
     group_by: str = "total",
 ) -> dict:
     """Get time-series data for line charts."""
@@ -75,14 +121,12 @@ def get_chart_data(
     start_ts = int(start_time.timestamp())
     now_ts = int(datetime.now(timezone.utc).timestamp())
 
-    # Generate all bucket timestamps
     all_buckets = []
     ts = (start_ts // bucket_seconds) * bucket_seconds
     while ts <= now_ts:
         all_buckets.append(ts)
         ts += bucket_seconds
 
-    # Build query
     bucket_expr = text(
         f"(CAST(EXTRACT(EPOCH FROM request_timestamp) AS INTEGER) / {bucket_seconds}) * {bucket_seconds}"
     )
@@ -91,6 +135,8 @@ def get_chart_data(
         group_col = TokenUsage.model_id
     elif group_by == "user":
         group_col = TokenUsage.user_id
+    elif group_by == "department":
+        group_col = TokenUsage.department_id
     else:
         group_col = None
 
@@ -98,28 +144,25 @@ def get_chart_data(
         bucket_expr.label("bucket_ts"),
         func.sum(TokenUsage.total_tokens).label("tokens"),
     )
-
     if group_col is not None:
         query = query.add_columns(group_col.label("group_id"))
 
     query = query.filter(TokenUsage.request_timestamp >= start_time)
-
-    if model_id:
-        query = query.filter(TokenUsage.model_id == model_id)
-    if user_id:
-        query = query.filter(TokenUsage.user_id == user_id)
-    if model_type:
-        model_ids = _get_model_ids_by_type(db, model_type)
-        query = query.filter(TokenUsage.model_id.in_(model_ids))
+    query = _apply_usage_filters(
+        query,
+        db,
+        model_id=model_id,
+        user_id=user_id,
+        model_type=model_type,
+        department_id=department_id,
+    )
 
     query = query.group_by("bucket_ts")
     if group_col is not None:
         query = query.group_by(group_col)
 
-    query = query.order_by("bucket_ts")
-    rows = query.all()
+    rows = query.order_by("bucket_ts").all()
 
-    # Build response
     if group_by == "total" or group_col is None:
         data_map = {b: 0 for b in all_buckets}
         for row in rows:
@@ -130,60 +173,62 @@ def get_chart_data(
             "timestamps": all_buckets,
             "series": [{"name": "總計", "data": [data_map[b] for b in all_buckets]}],
         }
+
+    if group_by == "model":
+        name_map = {m.id: m.display_name for m in db.query(ModelRegistry).all()}
+    elif group_by == "user":
+        name_map = {u.id: u.username for u in db.query(User).all()}
     else:
-        # Get group names
-        if group_by == "model":
-            name_map = {
-                m.id: m.display_name
-                for m in db.query(ModelRegistry).all()
-            }
-        else:
-            name_map = {
-                u.id: u.username
-                for u in db.query(User).all()
-            }
+        name_map = {
+            d.id: d.name
+            for d in db.query(Department).order_by(Department.name).all()
+        }
+        name_map[None] = "未指定部門"
 
-        group_data: dict[int, dict[int, int]] = {}
-        for row in rows:
-            gid = int(row.group_id)
-            bucket = int(row.bucket_ts)
-            if gid not in group_data:
-                group_data[gid] = {b: 0 for b in all_buckets}
-            if bucket in group_data[gid]:
-                group_data[gid][bucket] = int(row.tokens)
+    group_data: dict[object, dict[int, int]] = {}
+    for row in rows:
+        gid = row.group_id
+        bucket = int(row.bucket_ts)
+        if gid not in group_data:
+            group_data[gid] = {b: 0 for b in all_buckets}
+        if bucket in group_data[gid]:
+            group_data[gid][bucket] = int(row.tokens)
 
-        series = []
-        for gid, data_map in group_data.items():
-            series.append({
-                "name": name_map.get(gid, str(gid)),
+    series = []
+    for gid, data_map in group_data.items():
+        series.append(
+            {
+                "name": name_map.get(gid, "未指定部門" if gid is None else str(gid)),
                 "data": [data_map[b] for b in all_buckets],
-            })
+            }
+        )
 
-        return {"timestamps": all_buckets, "series": series}
+    return {"timestamps": all_buckets, "series": series}
 
 
 def get_top_models(
     db: Session,
     limit: int = 10,
     model_type: str | None = None,
+    user_id: int | None = None,
+    department_id: int | None = None,
 ) -> list[dict]:
     start_time, _ = get_time_range("30d")
-    query = (
-        db.query(
-            TokenUsage.model_id,
-            func.sum(TokenUsage.total_tokens).label("total_tokens"),
-            func.count(TokenUsage.id).label("total_requests"),
-        )
-        .filter(TokenUsage.request_timestamp >= start_time)
+    query = db.query(
+        TokenUsage.model_id,
+        func.sum(TokenUsage.total_tokens).label("total_tokens"),
+        func.count(TokenUsage.id).label("total_requests"),
+    ).filter(TokenUsage.request_timestamp >= start_time)
+    query = _apply_usage_filters(
+        query,
+        db,
+        user_id=user_id,
+        model_type=model_type,
+        department_id=department_id,
     )
 
-    if model_type:
-        model_ids = _get_model_ids_by_type(db, model_type)
-        query = query.filter(TokenUsage.model_id.in_(model_ids))
-
     results = (
-        query
-        .group_by(TokenUsage.model_id)
+        query.group_by(TokenUsage.model_id)
         .order_by(func.sum(TokenUsage.total_tokens).desc())
         .limit(limit)
         .all()
@@ -193,7 +238,8 @@ def get_top_models(
     return [
         {
             "model_id": r.model_id,
-            "model_name": model_map.get(r.model_id, ModelRegistry()).display_name or "未知",
+            "model_name": model_map.get(r.model_id, ModelRegistry()).display_name
+            or "未知",
             "model_type": model_map.get(r.model_id, ModelRegistry()).model_type or "未知",
             "total_tokens": int(r.total_tokens),
             "total_requests": r.total_requests,
@@ -202,16 +248,27 @@ def get_top_models(
     ]
 
 
-def get_top_users(db: Session, limit: int = 10) -> list[dict]:
+def get_top_users(
+    db: Session,
+    limit: int = 10,
+    model_type: str | None = None,
+    department_id: int | None = None,
+) -> list[dict]:
     start_time, _ = get_time_range("30d")
+    query = db.query(
+        TokenUsage.user_id,
+        func.sum(TokenUsage.total_tokens).label("total_tokens"),
+        func.count(TokenUsage.id).label("total_requests"),
+    ).filter(TokenUsage.request_timestamp >= start_time)
+    query = _apply_usage_filters(
+        query,
+        db,
+        model_type=model_type,
+        department_id=department_id,
+    )
+
     results = (
-        db.query(
-            TokenUsage.user_id,
-            func.sum(TokenUsage.total_tokens).label("total_tokens"),
-            func.count(TokenUsage.id).label("total_requests"),
-        )
-        .filter(TokenUsage.request_timestamp >= start_time)
-        .group_by(TokenUsage.user_id)
+        query.group_by(TokenUsage.user_id)
         .order_by(func.sum(TokenUsage.total_tokens).desc())
         .limit(limit)
         .all()
@@ -229,59 +286,111 @@ def get_top_users(db: Session, limit: int = 10) -> list[dict]:
     ]
 
 
+def get_top_departments(
+    db: Session,
+    limit: int = 10,
+    model_type: str | None = None,
+    department_id: int | None = None,
+) -> list[dict]:
+    start_time, _ = get_time_range("30d")
+    query = db.query(
+        TokenUsage.department_id,
+        func.sum(TokenUsage.total_tokens).label("total_tokens"),
+        func.count(TokenUsage.id).label("total_requests"),
+    ).filter(TokenUsage.request_timestamp >= start_time)
+    query = _apply_usage_filters(
+        query,
+        db,
+        model_type=model_type,
+        department_id=department_id,
+    )
+
+    results = (
+        query.group_by(TokenUsage.department_id)
+        .order_by(func.sum(TokenUsage.total_tokens).desc())
+        .limit(limit)
+        .all()
+    )
+
+    department_map = {d.id: d.name for d in db.query(Department).all()}
+    return [
+        {
+            "department_id": r.department_id,
+            "department_name": department_map.get(r.department_id, "未指定部門"),
+            "total_tokens": int(r.total_tokens),
+            "total_requests": r.total_requests,
+        }
+        for r in results
+    ]
+
+
 def export_usage_csv(
     db: Session,
     range_key: str,
     model_id: int | None = None,
     user_id: int | None = None,
     model_type: str | None = None,
+    department_id: int | None = None,
 ) -> str:
     """Export usage data as CSV string."""
     start_time, _ = get_time_range(range_key)
 
-    query = db.query(
-        TokenUsage.request_timestamp,
-        User.username,
-        ModelRegistry.display_name.label("model_name"),
-        ModelRegistry.model_type,
-        TokenUsage.prompt_tokens,
-        TokenUsage.completion_tokens,
-        TokenUsage.total_tokens,
-        TokenUsage.request_duration_ms,
-    ).join(
-        User, TokenUsage.user_id == User.id
-    ).join(
-        ModelRegistry, TokenUsage.model_id == ModelRegistry.id
-    ).filter(
-        TokenUsage.request_timestamp >= start_time
+    query = (
+        db.query(
+            TokenUsage.request_timestamp,
+            User.username,
+            Department.name.label("department_name"),
+            ModelRegistry.display_name.label("model_name"),
+            ModelRegistry.model_type,
+            TokenUsage.prompt_tokens,
+            TokenUsage.completion_tokens,
+            TokenUsage.total_tokens,
+            TokenUsage.request_duration_ms,
+        )
+        .join(User, TokenUsage.user_id == User.id)
+        .outerjoin(Department, TokenUsage.department_id == Department.id)
+        .join(ModelRegistry, TokenUsage.model_id == ModelRegistry.id)
+        .filter(TokenUsage.request_timestamp >= start_time)
+    )
+    query = _apply_usage_filters(
+        query,
+        db,
+        model_id=model_id,
+        user_id=user_id,
+        model_type=model_type,
+        department_id=department_id,
     )
 
-    if model_id:
-        query = query.filter(TokenUsage.model_id == model_id)
-    if user_id:
-        query = query.filter(TokenUsage.user_id == user_id)
-    if model_type:
-        query = query.filter(ModelRegistry.model_type == model_type)
-
-    query = query.order_by(TokenUsage.request_timestamp.desc())
-    rows = query.all()
+    rows = query.order_by(TokenUsage.request_timestamp.desc()).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        "時間", "使用者", "模型", "類型",
-        "輸入 Tokens", "輸出 Tokens", "總計 Tokens", "延遲 (ms)"
-    ])
+    writer.writerow(
+        [
+            "時間",
+            "使用者",
+            "部門",
+            "模型",
+            "類型",
+            "輸入 Tokens",
+            "輸出 Tokens",
+            "總計 Tokens",
+            "延遲 (ms)",
+        ]
+    )
     for row in rows:
-        writer.writerow([
-            row.request_timestamp.isoformat() if row.request_timestamp else "",
-            row.username,
-            row.model_name,
-            row.model_type,
-            row.prompt_tokens,
-            row.completion_tokens,
-            row.total_tokens,
-            row.request_duration_ms or "",
-        ])
+        writer.writerow(
+            [
+                row.request_timestamp.isoformat() if row.request_timestamp else "",
+                row.username,
+                row.department_name or "",
+                row.model_name,
+                row.model_type,
+                row.prompt_tokens,
+                row.completion_tokens,
+                row.total_tokens,
+                row.request_duration_ms or "",
+            ]
+        )
 
     return output.getvalue()

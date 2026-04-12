@@ -34,3 +34,10 @@ class TopUserUsage(BaseModel):
     username: str
     total_tokens: int
     total_requests: int
+
+
+class TopDepartmentUsage(BaseModel):
+    department_id: int | None = None
+    department_name: str
+    total_tokens: int
+    total_requests: int

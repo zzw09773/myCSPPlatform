@@ -39,6 +39,36 @@ const routes = [
         component: () => import('../views/UsersView.vue'),
         meta: { requiresAdmin: true },
       },
+      {
+        path: 'departments',
+        name: 'Departments',
+        component: () => import('../views/DepartmentsView.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'alerts',
+        name: 'Alerts',
+        component: () => import('../views/AlertsView.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'audit-logs',
+        name: 'AuditLogs',
+        component: () => import('../views/AuditLogsView.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'auth-providers',
+        name: 'AuthProviders',
+        component: () => import('../views/AuthProvidersView.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'platform-links',
+        name: 'PlatformLinks',
+        component: () => import('../views/PlatformLinksView.vue'),
+        meta: { requiresAdmin: true },
+      },
     ],
   },
 ]

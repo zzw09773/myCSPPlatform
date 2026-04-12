@@ -6,8 +6,45 @@
         <p class="text-gray-500 mt-2">AI 模型服務管理平台</p>
       </div>
 
+      <div v-if="ldapProviders.length" class="mb-6">
+        <div class="grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1">
+          <button
+            type="button"
+            @click="authMode = 'local'"
+            class="px-3 py-2 text-sm rounded-md transition"
+            :class="authMode === 'local' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'"
+          >
+            本機登入
+          </button>
+          <button
+            type="button"
+            @click="authMode = 'ldap'"
+            class="px-3 py-2 text-sm rounded-md transition"
+            :class="authMode === 'ldap' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'"
+          >
+            LDAP 登入
+          </button>
+        </div>
+      </div>
+
       <!-- Login Form -->
       <form @submit.prevent="handleLogin" class="space-y-5">
+        <div v-if="authMode === 'ldap'">
+          <label class="block text-sm font-medium text-gray-700 mb-1">LDAP Provider</label>
+          <select
+            v-model="selectedLdapProviderId"
+            class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+          >
+            <option
+              v-for="provider in ldapProviders"
+              :key="provider.id"
+              :value="provider.id"
+            >
+              {{ provider.button_text || provider.name }}
+            </option>
+          </select>
+        </div>
+
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">帳號</label>
           <input
@@ -37,13 +74,14 @@
 
         <button
           type="submit"
-          :disabled="loading"
+          :disabled="loading || (authMode === 'ldap' && !selectedLdapProviderId)"
           class="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition"
         >
-          {{ loading ? '登入中...' : '登入' }}
+          {{ loading ? '登入中...' : authMode === 'ldap' ? '使用 LDAP 登入' : '登入' }}
         </button>
 
         <button
+          v-if="authMode === 'local'"
           type="button"
           @click="openRegisterModal"
           class="w-full border border-gray-300 text-gray-700 py-2.5 rounded-lg font-medium hover:bg-gray-50 transition"
@@ -51,6 +89,22 @@
           註冊新帳號
         </button>
       </form>
+
+      <div v-if="oidcProviders.length" class="mt-8 pt-6 border-t border-gray-200">
+        <p class="text-sm font-medium text-gray-700 mb-3">單一登入</p>
+        <div class="space-y-3">
+          <button
+            v-for="provider in oidcProviders"
+            :key="provider.id"
+            type="button"
+            @click="handleOidcLogin(provider)"
+            :disabled="oidcLoadingId === provider.id"
+            class="w-full border border-gray-300 text-gray-700 py-2.5 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50 transition"
+          >
+            {{ oidcLoadingId === provider.id ? '跳轉中...' : (provider.button_text || `使用 ${provider.name} 登入`) }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Register Modal -->
@@ -143,19 +197,23 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { register as registerApi } from '../api/auth'
+import { getOidcStartUrl, listPublicAuthProviders, register as registerApi } from '../api/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
+const authMode = ref('local')
 const username = ref('')
 const password = ref('')
 const error = ref('')
 const isPending = ref(false)
 const loading = ref(false)
+const oidcLoadingId = ref(null)
+const providers = ref([])
+const selectedLdapProviderId = ref(null)
 
 const showRegisterModal = ref(false)
 const registering = ref(false)
@@ -177,12 +235,37 @@ const canRegister = computed(() =>
   hasSpecial(reg.value.password)
 )
 
+const ldapProviders = computed(() =>
+  providers.value.filter(provider => provider.provider_type === 'ldap')
+)
+
+const oidcProviders = computed(() =>
+  providers.value.filter(provider => provider.provider_type === 'oidc')
+)
+
+async function fetchProviders() {
+  try {
+    const { data } = await listPublicAuthProviders()
+    providers.value = data
+    if (!selectedLdapProviderId.value && ldapProviders.value.length) {
+      selectedLdapProviderId.value = ldapProviders.value[0].id
+    }
+  } catch {
+    providers.value = []
+  }
+}
+
+onMounted(fetchProviders)
+
 async function handleLogin() {
   error.value = ''
   isPending.value = false
   loading.value = true
   try {
-    await authStore.login(username.value, password.value)
+    const extra = authMode.value === 'ldap'
+      ? { auth_source: 'ldap', provider_id: selectedLdapProviderId.value }
+      : { auth_source: 'local' }
+    await authStore.login(username.value, password.value, extra)
     router.push('/')
   } catch (e) {
     const detail = e.response?.data?.detail || '登入失敗，請檢查帳號密碼'
@@ -192,6 +275,20 @@ async function handleLogin() {
     error.value = detail
   } finally {
     loading.value = false
+  }
+}
+
+async function handleOidcLogin(provider) {
+  error.value = ''
+  isPending.value = false
+  oidcLoadingId.value = provider.id
+  try {
+    const { data } = await getOidcStartUrl(provider.id, '/')
+    window.location.href = data.authorization_url
+  } catch (e) {
+    const detail = e.response?.data?.detail
+    error.value = detail || '無法啟動單一登入流程'
+    oidcLoadingId.value = null
   }
 }
 

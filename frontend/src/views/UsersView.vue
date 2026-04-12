@@ -17,6 +17,7 @@
           <tr>
             <th class="px-4 py-3 text-left text-gray-600 font-medium">帳號</th>
             <th class="px-4 py-3 text-left text-gray-600 font-medium">Email</th>
+            <th class="px-4 py-3 text-left text-gray-600 font-medium">部門</th>
             <th class="px-4 py-3 text-left text-gray-600 font-medium">角色</th>
             <th class="px-4 py-3 text-left text-gray-600 font-medium">狀態</th>
             <th class="px-4 py-3 text-left text-gray-600 font-medium">建立日期</th>
@@ -27,6 +28,7 @@
           <tr v-for="user in users" :key="user.id" class="border-b last:border-0 hover:bg-gray-50">
             <td class="px-4 py-3 font-medium">{{ user.username }}</td>
             <td class="px-4 py-3 text-gray-500">{{ user.email || '-' }}</td>
+            <td class="px-4 py-3 text-gray-500">{{ user.department_name || '未設定' }}</td>
             <td class="px-4 py-3">
               <span
                 class="text-xs px-2 py-0.5 rounded"
@@ -74,7 +76,7 @@
             </td>
           </tr>
           <tr v-if="users.length === 0">
-            <td colspan="6" class="px-4 py-8 text-center text-gray-400">尚無使用者</td>
+            <td colspan="7" class="px-4 py-8 text-center text-gray-400">尚無使用者</td>
           </tr>
         </tbody>
       </table>
@@ -111,6 +113,16 @@
               class="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
               <option value="user">使用者</option>
               <option value="admin">管理員</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">部門</label>
+            <select v-model="form.department_id"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
+              <option :value="null">未設定</option>
+              <option v-for="department in activeDepartments" :key="department.id" :value="department.id">
+                {{ department.name }}
+              </option>
             </select>
           </div>
         </div>
@@ -199,16 +211,18 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import client from '../api/client'
+import { listDepartments } from '../api/departments'
 import { listModels } from '../api/models'
 import { getUserAllowedModels, updateUserAllowedModels } from '../api/users'
 
 const users = ref([])
+const departments = ref([])
 const allModels = ref([])
 const showModal = ref(false)
 const editingId = ref(null)
-const form = ref({ username: '', password: '', email: '', role: 'user' })
+const form = ref({ username: '', password: '', email: '', role: 'user', department_id: null })
 const showResetModal = ref(false)
 const resetTarget = ref(null)
 const resetPassword = ref('')
@@ -216,6 +230,8 @@ const showAllowedModelsModal = ref(false)
 const allowedModelsTarget = ref(null)
 const selectedModelIds = ref([])
 const savingModels = ref(false)
+
+const activeDepartments = computed(() => departments.value.filter(d => d.is_active))
 
 async function fetchUsers() {
   const { data } = await client.get('/api/users')
@@ -225,6 +241,10 @@ async function fetchUsers() {
 onMounted(async () => {
   await fetchUsers()
   try {
+    const { data } = await listDepartments()
+    departments.value = data
+  } catch {}
+  try {
     const { data } = await listModels()
     allModels.value = data
   } catch {}
@@ -232,13 +252,18 @@ onMounted(async () => {
 
 function openCreateModal() {
   editingId.value = null
-  form.value = { username: '', password: '', email: '', role: 'user' }
+  form.value = { username: '', password: '', email: '', role: 'user', department_id: null }
   showModal.value = true
 }
 
 function openEditModal(user) {
   editingId.value = user.id
-  form.value = { username: user.username, email: user.email || '', role: user.role }
+  form.value = {
+    username: user.username,
+    email: user.email || '',
+    role: user.role,
+    department_id: user.department_id ?? null,
+  }
   showModal.value = true
 }
 
@@ -248,6 +273,7 @@ async function handleSubmit() {
       await client.put(`/api/users/${editingId.value}`, {
         email: form.value.email || null,
         role: form.value.role,
+        department_id: form.value.department_id,
       })
     } else {
       await client.post('/api/users', form.value)

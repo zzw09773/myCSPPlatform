@@ -10,8 +10,8 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!accessToken.value)
   const isAdmin = computed(() => user.value?.role === 'admin')
 
-  async function login(username, password) {
-    const { data } = await loginApi(username, password)
+  async function login(username, password, extra = {}) {
+    const { data } = await loginApi(username, password, extra)
     accessToken.value = data.access_token
     refreshTokenValue.value = data.refresh_token
     localStorage.setItem('accessToken', data.access_token)

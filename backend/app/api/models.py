@@ -6,6 +6,7 @@ from app.database import get_db
 from app.models.model_registry import ModelRegistry
 from app.models.user import User
 from app.schemas.model_registry import ModelCreate, ModelUpdate, ModelResponse
+from app.services.audit_service import log_audit_event
 from app.services.auth_service import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/models", tags=["模型管理"])
@@ -70,6 +71,15 @@ def create_model(
     db.add(model)
     db.commit()
     db.refresh(model)
+    log_audit_event(
+        db,
+        actor=admin,
+        action="create",
+        resource_type="model",
+        resource_id=model.id,
+        detail=f"建立模型「{model.display_name}」",
+        commit=True,
+    )
     return _build_response(model)
 
 
@@ -82,6 +92,10 @@ def get_model(
     model = db.query(ModelRegistry).filter(ModelRegistry.id == model_id).first()
     if not model:
         raise HTTPException(status_code=404, detail="模型不存在")
+    if current_user.role != "admin":
+        allowed_ids = {m.id for m in current_user.allowed_models}
+        if model.id not in allowed_ids:
+            raise HTTPException(status_code=404, detail="模型不存在")
     return _build_response(model)
 
 
@@ -111,6 +125,15 @@ def update_model(
 
     db.commit()
     db.refresh(model)
+    log_audit_event(
+        db,
+        actor=admin,
+        action="update",
+        resource_type="model",
+        resource_id=model.id,
+        detail=f"更新模型「{model.display_name}」",
+        commit=True,
+    )
     return _build_response(model)
 
 
@@ -125,6 +148,15 @@ def deactivate_model(
         raise HTTPException(status_code=404, detail="模型不存在")
     model.is_active = False
     db.commit()
+    log_audit_event(
+        db,
+        actor=admin,
+        action="deactivate",
+        resource_type="model",
+        resource_id=model.id,
+        detail=f"停用模型「{model.display_name}」",
+        commit=True,
+    )
     return {"message": "模型已停用"}
 
 
@@ -148,6 +180,15 @@ async def trigger_health_check(
                         model.health_status = "online"
                         model.health_checked_at = datetime.now(timezone.utc)
                         db.commit()
+                        log_audit_event(
+                            db,
+                            actor=admin,
+                            action="health_check",
+                            resource_type="model",
+                            resource_id=model.id,
+                            detail=f"手動健康檢查成功: {model.display_name}",
+                            commit=True,
+                        )
                         return {"status": "online", "detail": f"端點 {path} 回應正常"}
                 except httpx.ConnectError:
                     continue
@@ -155,9 +196,28 @@ async def trigger_health_check(
             model.health_status = "offline"
             model.health_checked_at = datetime.now(timezone.utc)
             db.commit()
+            log_audit_event(
+                db,
+                actor=admin,
+                action="health_check",
+                resource_type="model",
+                resource_id=model.id,
+                detail=f"手動健康檢查離線: {model.display_name}",
+                commit=True,
+            )
             return {"status": "offline", "detail": "無法連線到模型端點"}
     except Exception as e:
         model.health_status = "offline"
         model.health_checked_at = datetime.now(timezone.utc)
         db.commit()
+        log_audit_event(
+            db,
+            actor=admin,
+            action="health_check",
+            resource_type="model",
+            resource_id=model.id,
+            status="failure",
+            detail=f"手動健康檢查失敗: {model.display_name} ({e})",
+            commit=True,
+        )
         return {"status": "offline", "detail": str(e)}

@@ -10,16 +10,20 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    department_id: int | None = None
 
 
 class UserUpdate(BaseModel):
     email: str | None = None
     role: str | None = None
+    department_id: int | None = None
     is_active: bool | None = None
 
 
 class UserResponse(UserBase):
     id: int
+    department_id: int | None = None
+    department_name: str | None = None
     is_active: bool
     is_approved: bool = True
     created_at: datetime
@@ -31,6 +35,8 @@ class UserResponse(UserBase):
 class LoginRequest(BaseModel):
     username: str
     password: str
+    auth_source: str = "local"
+    provider_id: int | None = None
 
 
 class TokenResponse(BaseModel):

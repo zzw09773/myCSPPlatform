@@ -9,8 +9,11 @@ export const getUsageChart = (params) =>
 export const getTopModels = (params) =>
   client.get('/api/usage/top-models', { params })
 
-export const getTopUsers = (limit = 10) =>
-  client.get('/api/usage/top-users', { params: { limit } })
+export const getTopUsers = (params) =>
+  client.get('/api/usage/top-users', { params })
+
+export const getTopDepartments = (params) =>
+  client.get('/api/usage/top-departments', { params })
 
 export const exportUsageCsv = (params) =>
   client.get('/api/usage/export', { params, responseType: 'blob' })

@@ -23,6 +23,11 @@ from sqlalchemy.engine import Engine
 
 from app.database import SessionLocal, engine
 from app.models.api_key import ApiKey, ApiKeyModelPermission
+from app.models.alert import Alert
+from app.models.audit_log import AuditLog
+from app.models.auth_provider import AuthProvider
+from app.models.department import Department
+from app.models.external_identity import ExternalIdentity
 from app.models.model_registry import ModelRegistry
 from app.models.platform_link import PlatformLink
 from app.models.token_usage import TokenUsage
@@ -41,9 +46,14 @@ LEGACY_SQLITE_DEFAULTS = [
 # Tables migrated from SQLite, in FK-safe order.
 # Each entry: (sqlite_table, sqlalchemy_model)
 MIGRATION_ORDER = [
+    ("auth_providers", AuthProvider),
+    ("departments", Department),
     ("users", User),
+    ("external_identities", ExternalIdentity),
     ("model_registry", ModelRegistry),
     ("platform_links", PlatformLink),
+    ("alerts", Alert),
+    ("audit_logs", AuditLog),
     ("user_model_permissions", UserModelPermission),
     ("api_keys", ApiKey),
     ("api_key_model_permissions", ApiKeyModelPermission),
@@ -54,9 +64,9 @@ MIGRATION_ORDER = [
 def run_startup_migrations() -> None:
     """Entry point called from the FastAPI lifespan hook."""
     try:
-        _ensure_token_version_column(engine)
+        _ensure_schema_backfills(engine)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.error(f"token_version 欄位遷移失敗: {exc}")
+        logger.error(f"啟動 schema 回填失敗: {exc}")
 
     try:
         _maybe_migrate_legacy_sqlite()
@@ -70,8 +80,8 @@ class LegacyMigrationError(RuntimeError):
     """Raised when the legacy SQLite migration cannot safely proceed."""
 
 
-def _ensure_token_version_column(bind: Engine) -> None:
-    """Backfill ``users.token_version`` for pre-existing Postgres schemas."""
+def _ensure_schema_backfills(bind: Engine) -> None:
+    """Backfill newly added columns/indexes for pre-existing schemas."""
     _ensure_user_column(
         bind,
         column="token_version",
@@ -83,6 +93,29 @@ def _ensure_token_version_column(bind: Engine) -> None:
         column="is_approved",
         postgres_ddl="ALTER TABLE users ADD COLUMN IF NOT EXISTS is_approved BOOLEAN NOT NULL DEFAULT TRUE",
         generic_ddl="ALTER TABLE users ADD COLUMN is_approved BOOLEAN NOT NULL DEFAULT 1",
+    )
+    _ensure_user_column(
+        bind,
+        column="department_id",
+        postgres_ddl=(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS department_id "
+            "INTEGER REFERENCES departments(id) ON DELETE SET NULL"
+        ),
+        generic_ddl="ALTER TABLE users ADD COLUMN department_id INTEGER",
+    )
+    _ensure_token_usage_column(
+        bind,
+        column="department_id",
+        postgres_ddl=(
+            "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS department_id "
+            "INTEGER REFERENCES departments(id)"
+        ),
+        generic_ddl="ALTER TABLE token_usage ADD COLUMN department_id INTEGER",
+    )
+    _ensure_postgres_index(
+        bind,
+        "CREATE INDEX IF NOT EXISTS idx_usage_department_time "
+        "ON token_usage (department_id, request_timestamp)",
     )
 
 
@@ -98,6 +131,33 @@ def _ensure_user_column(bind: Engine, *, column: str, postgres_ddl: str, generic
     with bind.begin() as conn:
         conn.execute(text(ddl))
     logger.info(f"已補上 users.{column} 欄位")
+
+
+def _ensure_token_usage_column(
+    bind: Engine,
+    *,
+    column: str,
+    postgres_ddl: str,
+    generic_ddl: str,
+) -> None:
+    inspector = inspect(bind)
+    if not inspector.has_table("token_usage"):
+        return
+    existing_cols = {c["name"] for c in inspector.get_columns("token_usage")}
+    if column in existing_cols:
+        return
+
+    ddl = postgres_ddl if bind.dialect.name == "postgresql" else generic_ddl
+    with bind.begin() as conn:
+        conn.execute(text(ddl))
+    logger.info(f"已補上 token_usage.{column} 欄位")
+
+
+def _ensure_postgres_index(bind: Engine, ddl: str) -> None:
+    if bind.dialect.name != "postgresql":
+        return
+    with bind.begin() as conn:
+        conn.execute(text(ddl))
 
 
 def _resolve_legacy_sqlite_path() -> Path | None:

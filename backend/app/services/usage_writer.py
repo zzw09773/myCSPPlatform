@@ -21,6 +21,7 @@ def get_usage_queue() -> asyncio.Queue:
 async def enqueue_usage(
     api_key_id: int,
     user_id: int,
+    department_id: int | None,
     model_id: int,
     prompt_tokens: int,
     completion_tokens: int,
@@ -32,6 +33,7 @@ async def enqueue_usage(
     await queue.put({
         "api_key_id": api_key_id,
         "user_id": user_id,
+        "department_id": department_id,
         "model_id": model_id,
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
