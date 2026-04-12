@@ -41,6 +41,12 @@ def list_models(
     query = db.query(ModelRegistry).order_by(ModelRegistry.model_type, ModelRegistry.name)
     if model_type:
         query = query.filter(ModelRegistry.model_type == model_type)
+    # Non-admin users only see models they are authorized for
+    if current_user.role != "admin":
+        allowed_ids = [m.id for m in current_user.allowed_models]
+        if not allowed_ids:
+            return []
+        query = query.filter(ModelRegistry.id.in_(allowed_ids))
     return [_build_response(m) for m in query.all()]
 
 

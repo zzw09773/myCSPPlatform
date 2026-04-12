@@ -54,11 +54,21 @@ def create_key(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if current_user.role == "admin":
+        effective_model_ids = request.model_ids
+    else:
+        effective_model_ids = [m.id for m in current_user.allowed_models]
+        if not effective_model_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="尚未被指派任何可用模型，請聯絡管理員",
+            )
+
     api_key, full_key = create_api_key(
         db=db,
         user_id=current_user.id,
         name=request.name,
-        model_ids=request.model_ids,
+        model_ids=effective_model_ids,
         expires_at=request.expires_at,
     )
     resp = _build_response(api_key)
@@ -98,6 +108,8 @@ def update_key(
     if request.is_active is not None:
         api_key.is_active = request.is_active
     if request.model_ids is not None:
+        if current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="只有管理員可以修改 API Key 的模型權限")
         # Clear existing permissions and set new ones
         db.query(ApiKeyModelPermission).filter(
             ApiKeyModelPermission.api_key_id == key_id
@@ -109,6 +121,37 @@ def update_key(
     db.commit()
     db.refresh(api_key)
     return _build_response(api_key)
+
+
+@router.post("/{key_id}/regenerate", response_model=ApiKeyCreatedResponse)
+def regenerate_key(
+    key_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    old_key = db.query(ApiKey).filter(ApiKey.id == key_id).first()
+    if not old_key:
+        raise HTTPException(status_code=404, detail="API Key 不存在")
+    if current_user.role != "admin" and old_key.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="無權限操作此 API Key")
+
+    old_model_ids = [m.id for m in old_key.allowed_models]
+
+    # Revoke old key
+    old_key.is_active = False
+    db.flush()
+
+    # Issue new key with same name / permissions / expiry
+    new_key, full_key = create_api_key(
+        db=db,
+        user_id=old_key.user_id,
+        name=old_key.name,
+        model_ids=old_model_ids,
+        expires_at=old_key.expires_at,
+    )
+    resp = _build_response(new_key)
+    resp["full_key"] = full_key
+    return resp
 
 
 @router.delete("/{key_id}")

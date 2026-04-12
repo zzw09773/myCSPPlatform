@@ -54,7 +54,14 @@
                 {{ key.is_active ? '啟用' : '已撤銷' }}
               </span>
             </td>
-            <td class="px-4 py-3">
+            <td class="px-4 py-3 flex items-center gap-3">
+              <button
+                v-if="key.is_active"
+                @click="confirmRegenerate(key)"
+                class="text-indigo-600 hover:text-indigo-800 text-xs"
+              >
+                重新核發
+              </button>
               <button
                 v-if="key.is_active"
                 @click="confirmRevoke(key)"
@@ -98,11 +105,12 @@
             <p class="text-xs text-gray-400 mt-1">留空表示不限期</p>
           </div>
 
-          <div>
+          <!-- Admin: choose models -->
+          <div v-if="authStore.isAdmin">
             <label class="block text-sm font-medium text-gray-700 mb-2">允許使用的模型</label>
             <div class="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3">
               <label
-                v-for="model in models"
+                v-for="model in allModels"
                 :key="model.id"
                 class="flex items-center space-x-2 cursor-pointer"
               >
@@ -115,7 +123,24 @@
                 <span class="text-sm">{{ model.display_name }}</span>
                 <span class="text-xs text-gray-400">({{ model.model_type }})</span>
               </label>
-              <p v-if="models.length === 0" class="text-sm text-gray-400">尚無已註冊的模型</p>
+              <p v-if="allModels.length === 0" class="text-sm text-gray-400">尚無已註冊的模型</p>
+            </div>
+          </div>
+
+          <!-- Non-admin: read-only allowlist -->
+          <div v-else>
+            <label class="block text-sm font-medium text-gray-700 mb-2">你的可用模型</label>
+            <div class="border border-gray-200 rounded-lg p-3 bg-gray-50">
+              <div class="flex flex-wrap gap-2" v-if="myAllowedModels.length > 0">
+                <span
+                  v-for="m in myAllowedModels"
+                  :key="m.id"
+                  class="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded"
+                >
+                  {{ m.display_name }}
+                </span>
+              </div>
+              <p v-else class="text-sm text-gray-400">尚未被指派任何可用模型，請聯絡管理員</p>
             </div>
           </div>
         </div>
@@ -129,7 +154,7 @@
           </button>
           <button
             @click="handleCreate"
-            :disabled="!newKey.name || creating"
+            :disabled="!newKey.name || creating || (!authStore.isAdmin && myAllowedModels.length === 0)"
             class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
           >
             {{ creating ? '建立中...' : '建立' }}
@@ -142,7 +167,7 @@
     <div v-if="showKeyModal" class="fixed inset-0 z-50 flex items-center justify-center">
       <div class="fixed inset-0 bg-black/50"></div>
       <div class="relative bg-white rounded-xl shadow-xl p-6 max-w-lg w-full mx-4">
-        <h3 class="text-lg font-semibold mb-2">API Key 已建立</h3>
+        <h3 class="text-lg font-semibold mb-2">{{ keyModalTitle }}</h3>
         <p class="text-sm text-red-600 mb-4">
           請立即複製此 Key，關閉後將無法再次查看！
         </p>
@@ -162,7 +187,7 @@
             @click="closeKeyModal"
             :disabled="!hasCopied"
             class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-            :title="!hasCopied ? '請先點擊「複製 Key」或「我已複製」' : ''"
+            :title="!hasCopied ? '請先點擊「複製 Key」' : ''"
           >
             我已複製，關閉
           </button>
@@ -180,23 +205,43 @@
       @confirm="handleRevoke"
       @cancel="showRevokeConfirm = false"
     />
+
+    <!-- Regenerate Confirm -->
+    <ConfirmDialog
+      :visible="showRegenerateConfirm"
+      title="重新核發 API Key"
+      :message="`確定要重新核發「${regenerateTarget?.name}」嗎？舊的 Key 將立即失效，系統會產生新的 Key。`"
+      confirm-text="重新核發"
+      :danger="false"
+      @confirm="handleRegenerate"
+      @cancel="showRegenerateConfirm = false"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useApiKeysStore } from '../stores/apiKeys'
+import { useAuthStore } from '../stores/auth'
 import { listModels } from '../api/models'
+import { getMyAllowedModels } from '../api/users'
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 
 const keysStore = useApiKeysStore()
-const models = ref([])
+const authStore = useAuthStore()
+
+const allModels = ref([])
+const myAllowedModels = ref([])
+
 const showCreateModal = ref(false)
 const showKeyModal = ref(false)
 const showRevokeConfirm = ref(false)
+const showRegenerateConfirm = ref(false)
 const revokeTarget = ref(null)
+const regenerateTarget = ref(null)
 const creating = ref(false)
 const createdFullKey = ref('')
+const keyModalTitle = ref('API Key 已建立')
 const copied = ref(false)
 const hasCopied = ref(false)
 
@@ -210,8 +255,14 @@ onMounted(async () => {
   await keysStore.fetchKeys()
   try {
     const { data } = await listModels()
-    models.value = data
+    allModels.value = data
   } catch {}
+  if (!authStore.isAdmin) {
+    try {
+      const { data } = await getMyAllowedModels()
+      myAllowedModels.value = data
+    } catch {}
+  }
 })
 
 async function handleCreate() {
@@ -219,11 +270,12 @@ async function handleCreate() {
   try {
     const payload = {
       name: newKey.value.name,
-      model_ids: newKey.value.model_ids,
+      model_ids: authStore.isAdmin ? newKey.value.model_ids : [],
       expires_at: newKey.value.expires_at || null,
     }
     const data = await keysStore.create(payload)
     createdFullKey.value = data.full_key
+    keyModalTitle.value = 'API Key 已建立'
     showCreateModal.value = false
     showKeyModal.value = true
     copied.value = false
@@ -259,6 +311,28 @@ async function handleRevoke() {
   }
   showRevokeConfirm.value = false
   revokeTarget.value = null
+}
+
+function confirmRegenerate(key) {
+  regenerateTarget.value = key
+  showRegenerateConfirm.value = true
+}
+
+async function handleRegenerate() {
+  showRegenerateConfirm.value = false
+  if (!regenerateTarget.value) return
+  try {
+    const data = await keysStore.regenerate(regenerateTarget.value.id)
+    createdFullKey.value = data.full_key
+    keyModalTitle.value = '新的 API Key 已核發'
+    showKeyModal.value = true
+    copied.value = false
+    hasCopied.value = false
+  } catch (e) {
+    alert(e.response?.data?.detail || '重新核發失敗')
+  } finally {
+    regenerateTarget.value = null
+  }
 }
 
 function formatDate(dateStr) {

@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class UserBase(BaseModel):
@@ -21,6 +21,7 @@ class UserUpdate(BaseModel):
 class UserResponse(UserBase):
     id: int
     is_active: bool
+    is_approved: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -49,3 +50,34 @@ class PasswordChangeRequest(BaseModel):
 
 class AdminResetPassword(BaseModel):
     new_password: str
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("密碼至少需要 8 個字元")
+        if not any(c.isupper() for c in v):
+            raise ValueError("密碼需包含至少一個大寫字母")
+        if not any(c.islower() for c in v):
+            raise ValueError("密碼需包含至少一個小寫字母")
+        if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?/~`"\'\\' for c in v):
+            raise ValueError("密碼需包含至少一個特殊符號")
+        return v
+
+
+class AllowedModelItem(BaseModel):
+    id: int
+    display_name: str
+    model_type: str
+
+    model_config = {"from_attributes": True}
+
+
+class UserAllowedModelsUpdate(BaseModel):
+    model_ids: list[int]

@@ -14,3 +14,6 @@ export const updateApiKey = (id, data) =>
 
 export const revokeApiKey = (id) =>
   client.delete(`/api/keys/${id}`)
+
+export const regenerateApiKey = (id) =>
+  client.post(`/api/keys/${id}/regenerate`)

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { listApiKeys, createApiKey, updateApiKey, revokeApiKey } from '../api/apiKeys'
+import { listApiKeys, createApiKey, updateApiKey, revokeApiKey, regenerateApiKey } from '../api/apiKeys'
 
 export const useApiKeysStore = defineStore('apiKeys', () => {
   const keys = ref([])
@@ -32,5 +32,11 @@ export const useApiKeysStore = defineStore('apiKeys', () => {
     await fetchKeys()
   }
 
-  return { keys, loading, fetchKeys, create, update, revoke }
+  async function regenerate(id) {
+    const { data } = await regenerateApiKey(id)
+    await fetchKeys()
+    return data
+  }
+
+  return { keys, loading, fetchKeys, create, update, revoke, regenerate }
 })

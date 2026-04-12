@@ -11,3 +11,6 @@ export const getMe = () =>
 
 export const changePassword = (current_password, new_password) =>
   client.put('/api/auth/password', { current_password, new_password })
+
+export const register = (username, email, password) =>
+  client.post('/api/auth/register', { username, email, password })

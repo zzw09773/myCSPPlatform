@@ -14,12 +14,18 @@ from app.utils.security import (
 security = HTTPBearer()
 
 
-def authenticate_user(db: Session, username: str, password: str) -> User | None:
+PENDING_APPROVAL_SENTINEL = "PENDING_APPROVAL"
+
+
+def authenticate_user(db: Session, username: str, password: str) -> User | str | None:
+    """Return User on success, PENDING_APPROVAL_SENTINEL if pending, None on failure."""
     user = db.query(User).filter(User.username == username).first()
     if not user or not verify_password(password, user.hashed_password):
         return None
     if not user.is_active:
         return None
+    if not getattr(user, "is_approved", True):
+        return PENDING_APPROVAL_SENTINEL
     return user
 
 

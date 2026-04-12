@@ -26,7 +26,7 @@ from app.models.api_key import ApiKey, ApiKeyModelPermission
 from app.models.model_registry import ModelRegistry
 from app.models.platform_link import PlatformLink
 from app.models.token_usage import TokenUsage
-from app.models.user import User
+from app.models.user import User, UserModelPermission
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,7 @@ MIGRATION_ORDER = [
     ("users", User),
     ("model_registry", ModelRegistry),
     ("platform_links", PlatformLink),
+    ("user_model_permissions", UserModelPermission),
     ("api_keys", ApiKey),
     ("api_key_model_permissions", ApiKeyModelPermission),
     ("token_usage", TokenUsage),
@@ -71,25 +72,32 @@ class LegacyMigrationError(RuntimeError):
 
 def _ensure_token_version_column(bind: Engine) -> None:
     """Backfill ``users.token_version`` for pre-existing Postgres schemas."""
+    _ensure_user_column(
+        bind,
+        column="token_version",
+        postgres_ddl="ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0",
+        generic_ddl="ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0",
+    )
+    _ensure_user_column(
+        bind,
+        column="is_approved",
+        postgres_ddl="ALTER TABLE users ADD COLUMN IF NOT EXISTS is_approved BOOLEAN NOT NULL DEFAULT TRUE",
+        generic_ddl="ALTER TABLE users ADD COLUMN is_approved BOOLEAN NOT NULL DEFAULT 1",
+    )
+
+
+def _ensure_user_column(bind: Engine, *, column: str, postgres_ddl: str, generic_ddl: str) -> None:
     inspector = inspect(bind)
     if not inspector.has_table("users"):
         return
     existing_cols = {c["name"] for c in inspector.get_columns("users")}
-    if "token_version" in existing_cols:
+    if column in existing_cols:
         return
 
-    dialect = bind.dialect.name
-    if dialect == "postgresql":
-        ddl = (
-            "ALTER TABLE users "
-            "ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0"
-        )
-    else:
-        ddl = "ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"
-
+    ddl = postgres_ddl if bind.dialect.name == "postgresql" else generic_ddl
     with bind.begin() as conn:
         conn.execute(text(ddl))
-    logger.info("已補上 users.token_version 欄位")
+    logger.info(f"已補上 users.{column} 欄位")
 
 
 def _resolve_legacy_sqlite_path() -> Path | None:

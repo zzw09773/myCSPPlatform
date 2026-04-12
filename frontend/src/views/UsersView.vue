@@ -36,7 +36,10 @@
               </span>
             </td>
             <td class="px-4 py-3">
-              <span
+              <span v-if="!user.is_approved" class="text-xs px-2 py-0.5 rounded bg-yellow-50 text-yellow-700">
+                待核准
+              </span>
+              <span v-else
                 class="text-xs px-2 py-0.5 rounded"
                 :class="user.is_active ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'"
               >
@@ -45,14 +48,24 @@
             </td>
             <td class="px-4 py-3 text-gray-500">{{ formatDate(user.created_at) }}</td>
             <td class="px-4 py-3 space-x-2">
+              <button
+                v-if="!user.is_approved"
+                @click="handleApprove(user)"
+                class="text-green-600 hover:text-green-800 text-xs font-medium"
+              >
+                核准
+              </button>
               <button @click="openEditModal(user)" class="text-indigo-600 hover:text-indigo-800 text-xs">
                 編輯
+              </button>
+              <button @click="openAllowedModelsModal(user)" class="text-teal-600 hover:text-teal-800 text-xs">
+                可用模型
               </button>
               <button @click="openResetPasswordModal(user)" class="text-orange-600 hover:text-orange-800 text-xs">
                 重設密碼
               </button>
               <button
-                v-if="user.is_active"
+                v-if="user.is_active && user.is_approved"
                 @click="handleDeactivate(user)"
                 class="text-red-600 hover:text-red-800 text-xs"
               >
@@ -116,6 +129,44 @@
       </div>
     </div>
 
+    <!-- Allowed Models Modal -->
+    <div v-if="showAllowedModelsModal" class="fixed inset-0 z-50 flex items-center justify-center">
+      <div class="fixed inset-0 bg-black/50" @click="showAllowedModelsModal = false"></div>
+      <div class="relative bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+        <h3 class="text-lg font-semibold mb-1">可用模型 — {{ allowedModelsTarget?.username }}</h3>
+        <p class="text-xs text-gray-400 mb-4">勾選該使用者被允許使用的模型（儲存後現有 API Key 權限同步調整）</p>
+
+        <div class="space-y-2 max-h-56 overflow-y-auto border border-gray-200 rounded-lg p-3">
+          <label
+            v-for="model in allModels"
+            :key="model.id"
+            class="flex items-center space-x-2 cursor-pointer"
+          >
+            <input
+              type="checkbox"
+              :value="model.id"
+              v-model="selectedModelIds"
+              class="rounded text-teal-600 focus:ring-teal-500"
+            />
+            <span class="text-sm">{{ model.display_name }}</span>
+            <span class="text-xs text-gray-400">({{ model.model_type }})</span>
+          </label>
+          <p v-if="allModels.length === 0" class="text-sm text-gray-400">尚無已註冊的模型</p>
+        </div>
+
+        <div class="flex justify-end space-x-3 mt-6">
+          <button @click="showAllowedModelsModal = false"
+            class="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+            取消
+          </button>
+          <button @click="handleSaveAllowedModels" :disabled="savingModels"
+            class="px-4 py-2 text-sm bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50">
+            {{ savingModels ? '儲存中...' : '儲存' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Reset Password Modal -->
     <div v-if="showResetModal" class="fixed inset-0 z-50 flex items-center justify-center">
       <div class="fixed inset-0 bg-black/50" @click="showResetModal = false"></div>
@@ -150,21 +201,34 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import client from '../api/client'
+import { listModels } from '../api/models'
+import { getUserAllowedModels, updateUserAllowedModels } from '../api/users'
 
 const users = ref([])
+const allModels = ref([])
 const showModal = ref(false)
 const editingId = ref(null)
 const form = ref({ username: '', password: '', email: '', role: 'user' })
 const showResetModal = ref(false)
 const resetTarget = ref(null)
 const resetPassword = ref('')
+const showAllowedModelsModal = ref(false)
+const allowedModelsTarget = ref(null)
+const selectedModelIds = ref([])
+const savingModels = ref(false)
 
 async function fetchUsers() {
   const { data } = await client.get('/api/users')
   users.value = data
 }
 
-onMounted(fetchUsers)
+onMounted(async () => {
+  await fetchUsers()
+  try {
+    const { data } = await listModels()
+    allModels.value = data
+  } catch {}
+})
 
 function openCreateModal() {
   editingId.value = null
@@ -195,6 +259,29 @@ async function handleSubmit() {
   }
 }
 
+async function openAllowedModelsModal(user) {
+  allowedModelsTarget.value = user
+  selectedModelIds.value = []
+  try {
+    const { data } = await getUserAllowedModels(user.id)
+    selectedModelIds.value = data.map(m => m.id)
+  } catch {}
+  showAllowedModelsModal.value = true
+}
+
+async function handleSaveAllowedModels() {
+  savingModels.value = true
+  try {
+    const result = await updateUserAllowedModels(allowedModelsTarget.value.id, selectedModelIds.value)
+    showAllowedModelsModal.value = false
+    alert(result.data?.message || '已更新可用模型')
+  } catch (e) {
+    alert(e.response?.data?.detail || '更新失敗')
+  } finally {
+    savingModels.value = false
+  }
+}
+
 function openResetPasswordModal(user) {
   resetTarget.value = user
   resetPassword.value = ''
@@ -210,6 +297,15 @@ async function handleResetPassword() {
     alert(`已重設使用者「${resetTarget.value.username}」的密碼`)
   } catch (e) {
     alert(e.response?.data?.detail || '重設密碼失敗')
+  }
+}
+
+async function handleApprove(user) {
+  try {
+    await client.post(`/api/users/${user.id}/approve`)
+    await fetchUsers()
+  } catch (e) {
+    alert(e.response?.data?.detail || '核准失敗')
   }
 }
 

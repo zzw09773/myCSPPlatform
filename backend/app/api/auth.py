@@ -8,27 +8,52 @@ from app.schemas.user import (
     RefreshRequest,
     PasswordChangeRequest,
     UserResponse,
+    RegisterRequest,
 )
 from app.services.auth_service import (
     authenticate_user,
     create_tokens,
     get_current_user,
     _load_user_from_payload,
+    PENDING_APPROVAL_SENTINEL,
 )
 from app.utils.security import decode_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["認證"])
 
 
+@router.post("/register", status_code=201)
+def register(request: RegisterRequest, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.username == request.username).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="帳號已被使用")
+    user = User(
+        username=request.username,
+        email=request.email,
+        hashed_password=hash_password(request.password),
+        role="user",
+        is_active=True,
+        is_approved=False,
+    )
+    db.add(user)
+    db.commit()
+    return {"message": "註冊成功，請等待管理員核准後再登入"}
+
+
 @router.post("/login", response_model=TokenResponse)
 def login(request: LoginRequest, db: Session = Depends(get_db)):
-    user = authenticate_user(db, request.username, request.password)
-    if not user:
+    result = authenticate_user(db, request.username, request.password)
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="帳號或密碼錯誤",
         )
-    return create_tokens(user)
+    if result is PENDING_APPROVAL_SENTINEL:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="等待核准中，請通知 admin",
+        )
+    return create_tokens(result)
 
 
 @router.post("/refresh", response_model=TokenResponse)
