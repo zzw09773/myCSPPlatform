@@ -33,6 +33,11 @@ async def lifespan(app: FastAPI):
     setup_logging()
     Base.metadata.create_all(bind=engine)
 
+    # Legacy SQLite migration + column backfills must run before auto_seed,
+    # otherwise seeding an empty Postgres would mask data from the old DB.
+    from app.services.startup_migrations import run_startup_migrations
+    run_startup_migrations()
+
     # Auto-seed: create admin, register models & links from env vars
     from app.services.auto_seed import auto_seed
     auto_seed()

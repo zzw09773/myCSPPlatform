@@ -82,8 +82,9 @@ def admin_reset_password(
     if not user:
         raise HTTPException(status_code=404, detail="使用者不存在")
     user.hashed_password = hash_password(request.new_password)
+    user.token_version = (user.token_version or 0) + 1
     db.commit()
-    return {"message": f"已重設使用者「{user.username}」的密碼"}
+    return {"message": f"已重設使用者「{user.username}」的密碼，現有權杖已失效"}
 
 
 @router.delete("/{user_id}")
@@ -96,5 +97,6 @@ def deactivate_user(
     if not user:
         raise HTTPException(status_code=404, detail="使用者不存在")
     user.is_active = False
+    user.token_version = (user.token_version or 0) + 1
     db.commit()
     return {"message": "使用者已停用"}

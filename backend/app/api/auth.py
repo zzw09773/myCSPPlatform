@@ -13,6 +13,7 @@ from app.services.auth_service import (
     authenticate_user,
     create_tokens,
     get_current_user,
+    _load_user_from_payload,
 )
 from app.utils.security import decode_token, hash_password, verify_password
 
@@ -33,18 +34,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 @router.post("/refresh", response_model=TokenResponse)
 def refresh(request: RefreshRequest, db: Session = Depends(get_db)):
     payload = decode_token(request.refresh_token)
-    if not payload or payload.get("type") != "refresh":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="無效的刷新權杖",
-        )
-    user_id = payload.get("sub")
-    user = db.query(User).filter(User.id == int(user_id)).first()
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="使用者不存在或已停用",
-        )
+    user = _load_user_from_payload(payload, db, "refresh")
     return create_tokens(user)
 
 
@@ -65,5 +55,7 @@ def change_password(
             detail="目前密碼不正確",
         )
     current_user.hashed_password = hash_password(request.new_password)
+    current_user.token_version = (current_user.token_version or 0) + 1
     db.commit()
-    return {"message": "密碼已更新"}
+    db.refresh(current_user)
+    return {"message": "密碼已更新，請重新登入", **create_tokens(current_user)}

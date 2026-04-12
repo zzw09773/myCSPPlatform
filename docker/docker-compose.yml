@@ -64,10 +64,14 @@ services:
       - "8000"
     volumes:
       - ../logs:/app/logs
+      # 舊版 SQLite 資料庫（唯讀掛載），啟動時會一次性遷移到 PostgreSQL
+      # 若為全新部署可移除此行
+      - ../data:/app/legacy-data:ro
     env_file:
       - ../.env
     environment:
       TZ: Asia/Taipei
+      LEGACY_SQLITE_PATH: /app/legacy-data/csp.db
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

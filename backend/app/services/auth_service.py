@@ -24,7 +24,12 @@ def authenticate_user(db: Session, username: str, password: str) -> User | None:
 
 
 def create_tokens(user: User) -> dict:
-    data = {"sub": str(user.id), "username": user.username, "role": user.role}
+    data = {
+        "sub": str(user.id),
+        "username": user.username,
+        "role": user.role,
+        "tv": user.token_version,
+    }
     return {
         "access_token": create_access_token(data),
         "refresh_token": create_refresh_token(data),
@@ -32,16 +37,11 @@ def create_tokens(user: User) -> dict:
     }
 
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
-) -> User:
-    token = credentials.credentials
-    payload = decode_token(token)
-    if not payload or payload.get("type") != "access":
+def _load_user_from_payload(payload: dict | None, db: Session, expected_type: str) -> User:
+    if not payload or payload.get("type") != expected_type:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="無效的存取權杖",
+            detail="無效的存取權杖" if expected_type == "access" else "無效的刷新權杖",
         )
     user_id = payload.get("sub")
     if not user_id:
@@ -55,7 +55,20 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="使用者不存在或已停用",
         )
+    if payload.get("tv", 0) != user.token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="權杖已失效，請重新登入",
+        )
     return user
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+) -> User:
+    payload = decode_token(credentials.credentials)
+    return _load_user_from_payload(payload, db, "access")
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
