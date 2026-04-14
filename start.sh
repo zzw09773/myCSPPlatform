@@ -26,12 +26,18 @@ case "${1:-help}" in
         echo -e "${GREEN}啟動 CSP Platform...${NC}"
         docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build
         echo ""
-        echo -e "${GREEN}服務已啟動${NC}"
+        echo -e "${YELLOW}等待服務就緒...${NC}"
+        until curl -sfk https://localhost/health > /dev/null 2>&1; do
+            printf '.'
+            sleep 2
+        done
+        echo ""
+        echo -e "${GREEN}服務已就緒${NC}"
         echo ""
         echo "存取位址："
-        echo "  管理平台: http://localhost (透過 Nginx)"
-        echo "  健康檢查: http://localhost/health"
-        echo "  API 文件: http://localhost/docs"
+        echo "  管理平台: https://localhost (透過 Nginx)"
+        echo "  健康檢查: https://localhost/health"
+        echo "  API 文件: https://localhost/docs"
         echo ""
         echo "管理指令："
         echo "  ./start.sh logs    - 查看日誌"
